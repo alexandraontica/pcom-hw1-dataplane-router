@@ -22,9 +22,6 @@ const uint8_t broadcast_mac[MAC_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 struct route_table_entry *rtable;
 int rtable_len;
 
-struct mac_entry *mac_table;
-int mac_table_len;
-
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -34,10 +31,29 @@ int main(int argc, char *argv[])
 
 	// aloc ca in laborator route table-ul si il citesc
 	rtable = malloc(sizeof(struct route_table_entry) * MAX_RTABLE_ENTRIES);
-	DIE(rtable == NULL, "malloc rtable");
+	
+	if (!rtable) {
+		return 1;
+	}
 
 	rtable_len = read_rtable(argv[1], rtable);
-	DIE(rtable_len < 0, "read rtable");
+
+	// imi creez trie-le cu prefixe (pregatesc LPM)
+	trie prefix_trie = create_trie();
+
+	for (int i = 0; i < rtable_len; i++) {
+		uint32_t prefix = rtable[i].prefix;
+		uint32_t mask = rtable[i].mask;
+		int interface = rtable[i].interface;
+		uint32_t next_hop = rtable[i].next_hop;
+
+		prefix_trie = add_to_trie(prefix_trie, prefix, mask, interface, next_hop);
+
+		if (!prefix_trie) {
+			free(rtable);
+			return 1;
+		}
+	}
 
 	while (1) {
 
@@ -63,7 +79,7 @@ int main(int argc, char *argv[])
 
 		// verific daca mi-a fost trimis mie pachetul (sau catre broadcast)
 
-		// TODO verifica daca merge asa sau daca trebuie sa fac memcpy
+		// TODO sa verific daca merge asa sau daca trebuie sa fac memcpy
 		// uint8_t dest_mac[MAC_LEN] = eth_hdr->ethr_dhost;
 		uint8_t dest_mac[MAC_LEN];
 		memcpy(dest_mac, eth_hdr->ethr_dhost, MAC_LEN);
@@ -106,7 +122,7 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// TODO verific si actualizez TTL-ul
+			// verific si actualizez TTL-ul
 			if (ip_hder->ttl == 0 || ip_hder->ttl == 1) {
 				// TTL-ul a expirat
 				// TODO trimite ICMP "Time Exceeded" catre sursa
@@ -117,7 +133,22 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// TODO caut in tabel urmatorul hop + LPM
+			// LPM + caut interfata urmatorului hop
+			uint32_t ip_addr_dest = ip_hder->dest_addr;
+			LPM lpm = longest_prefix_match(prefix_trie, ip_addr_dest);
+
+			uint32_t next_hop_addr = lpm.ip_addr;
+			int next_hop_interface = lpm.interface;
+
+			if (next_hop_interface == -1) {
+				// nu am gasit un prefix care sa se potriveasca
+				// TODO trimite ICMP "Destination Unreachable" catre sursa
+				
+				free(my_mac);
+
+				// arunc pachetul
+				continue;
+			}
 
 			// TODO actualizez checksum-ul
 
@@ -136,5 +167,8 @@ int main(int argc, char *argv[])
 		host order. For example, ntohs(eth_hdr->ether_type). The oposite is needed when
 		sending a packet on the link, */
 	}
+
+	free(rtable);
+	free_trie(&prefix_trie);
 }
 

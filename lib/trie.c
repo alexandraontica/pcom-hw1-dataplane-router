@@ -4,7 +4,9 @@
 #include <stdio.h>
 #include "trie.h"
 
-char* int_to_ip(uint32_t ip) {
+char* int_to_ip(uint32_t ip) 
+// transform un int intr-un string ce reprezinta adresa ip (pentru debugging)
+{
     uint8_t byte1 = (ip >> 24) & 0xFF;
     uint8_t byte2 = (ip >> 16) & 0xFF;
     uint8_t byte3 = (ip >> 8) & 0xFF;
@@ -16,7 +18,7 @@ char* int_to_ip(uint32_t ip) {
     return strdup(buffer);
 }
 
-trie alloc_node(int is_end, int prefix_len, uint32_t prefix)
+trie alloc_node(int is_end, int prefix_len, uint32_t prefix, int interface, uint32_t ip_addr)
 // aloc un nod in arbore
 {
     trie aux = (trie)calloc(1, sizeof(tnode));
@@ -24,6 +26,8 @@ trie alloc_node(int is_end, int prefix_len, uint32_t prefix)
         aux->is_end = is_end;
         aux->prefix_len = prefix_len;
         aux->prefix = prefix;
+        aux->ip_addr = ip_addr;
+        aux->interface = interface;
 
         int i;
         for (i = 0; i < 256; i++) {
@@ -36,15 +40,15 @@ trie alloc_node(int is_end, int prefix_len, uint32_t prefix)
 trie create_trie()
 // creez arborele
 {
-    trie t = alloc_node(0, 0, 0);
+    trie t = alloc_node(0, 0, 0, 0, 0);
     return t;
     // nu imi trebuie verificare suplimentare a alocarii,
     // oricum il returnez pe t (care ar fi NULL cand alocarea esueaza),
     // deci logica se pastreaza
 }
 
-trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
-// adaug un nod nou in arbore
+trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, int interface, uint32_t ip_addr)
+// adaug un prefix nou in arbore (daca nu exista deja prefixul dat ca parametru)
 {
     if (!t) {
         t = create_trie();
@@ -81,14 +85,15 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
         current_len++;
 
         if (!aux->children[current_byte]) {
-            aux->children[current_byte] = alloc_node(0, current_len, (current_prefix << (8 * i)));
+            aux->children[current_byte] = alloc_node(0, current_len, (current_prefix << (8 * i)), -1, 0);
+            
             if (!aux->children[current_byte]) {
                 free_trie(&t);
                 return NULL;
             }
         }
 
-        printf("prefix curent: %s\n", int_to_ip((current_prefix << (8 * i))));
+        // printf("prefix curent: %s\n", int_to_ip((current_prefix << (8 * i))));
 
         aux = aux->children[current_byte];
     }
@@ -100,7 +105,8 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
     current_len++;
 
     if (!aux->children[current_byte]) {
-        aux->children[current_byte] = alloc_node(1, current_len, (current_prefix << (8 * i)));
+        aux->children[current_byte] = alloc_node(1, current_len, (current_prefix << (8 * i)), interface, ip_addr);
+        
         if (!aux->children[current_byte]) {
             free_trie(&t);
             return NULL;
@@ -110,22 +116,30 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
     aux->is_end = 1;
     aux->prefix_len = current_len;
     aux->prefix = (current_prefix << (8 * i));
+    aux->ip_addr = ip_addr;
+    aux->interface = interface;
 
     // (current_prefix << (8 * i)) ar trebui sa fie egal cu prefixul initial at this point
-    printf("Prefix de adaugat: %s, prefix curent: %s\n", int_to_ip(prefix), int_to_ip((current_prefix << (8 * i))));
+    // printf("prefix de adaugat: %s, prefix curent: %s\n", int_to_ip(prefix), int_to_ip((current_prefix << (8 * i))));
 
     return t;
 }
 
-uint32_t longest_prefix_match(trie t, uint32_t ip) {
+LPM longest_prefix_match(trie t, uint32_t ip) 
+// caut in arbore prefixul cel mai lung care se potriveste cu ip-ul dat
+{
+    LPM lpm;
+
     if (!t) {
-        return 0;
+        lpm.ip_addr = 0;
+        lpm.interface = -1;
+        return lpm;
     }
 
     trie aux = t;
-    uint32_t longest_prefix = 0;
     int longest_len = 0;
     int current_num_byte = 3; // incep de la ultimul octet
+    trie node_with_longest_prefix = NULL;
 
     // parcurg arborele
     while (aux) {
@@ -140,7 +154,7 @@ uint32_t longest_prefix_match(trie t, uint32_t ip) {
             // pana acum
             if (aux->is_end && aux->prefix_len > longest_len) {
                 longest_len = aux->prefix_len;
-                longest_prefix = aux->prefix;
+                node_with_longest_prefix = aux;
             }
         } else {
             break; // nu mai am copii care sa se potriveasca
@@ -149,7 +163,16 @@ uint32_t longest_prefix_match(trie t, uint32_t ip) {
         current_num_byte--;
     }
 
-    return longest_prefix;
+    if (node_with_longest_prefix) {
+        lpm.ip_addr = node_with_longest_prefix->ip_addr;
+        lpm.interface = node_with_longest_prefix->interface;
+    } else {
+        // nu am gasit un prefix care sa se potriveasca
+        lpm.ip_addr = 0;
+        lpm.interface = -1;
+    }
+    
+    return lpm;
 }
 
 void free_trie(trie *t)
@@ -177,27 +200,30 @@ void free_trie(trie *t)
 //     uint32_t prefix = (192 << 24) | (168 << 16) | (5 << 8) | 0;
 //     uint32_t mask = (255 << 24) | (255 << 16) | (255 << 8) | 0;
 
-//     t = add_to_trie(t, prefix, mask);
+//     t = add_to_trie(t, prefix, mask, 1, (prefix) | 4);
 
 //     prefix = (10 << 24) | 0;
 //     mask = (255 << 24) | 0;
 
-//     t = add_to_trie(t, prefix, mask);
+//     t = add_to_trie(t, prefix, mask, 2, (prefix) | 170);
 
 //     prefix = (192 << 24) | (167 << 16) | 0;
 //     mask = (255 << 24) | (255 << 16) | 0;
 
-//     t = add_to_trie(t, prefix, mask);
+//     t = add_to_trie(t, prefix, mask, 3, prefix);
 
 //     prefix = (192 << 24) | 0;
 //     mask = (255 << 24) | 0;
 
-//     t = add_to_trie(t, prefix, mask);
+//     t = add_to_trie(t, prefix, mask, 4, prefix);
 
-//     uint32_t ip = (192 << 24) | (163 << 16) | (5 << 8) | 3;
-
+//     uint32_t ip = (10 << 24) | (168 << 16) | (5 << 8) | 3;
 //     printf("\nIP: %s\n", int_to_ip(ip));
-//     printf("LPM: %s\n", int_to_ip(longest_prefix_match(t, ip)));
+
+//     LPM lpm = longest_prefix_match(t, ip);
+
+//     printf("LPM: ip %s, interface %d \n", int_to_ip(lpm.ip_addr), lpm.interface);
+
 //     free_trie(&t);
 
 //     return 0;
