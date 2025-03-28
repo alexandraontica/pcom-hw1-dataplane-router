@@ -1,0 +1,6 @@
+**get_best_route luata din lab (momentan)**
+
+TODO: free(mac)
+
+adaptare a temei 2 la SDA de anul trecut (arbori de sufixe)
+am creat eu trie le (cu ajutor de la LLM-uri pentru debugging - am avut segfault-uri :(()
