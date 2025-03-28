@@ -12,6 +12,7 @@ typedef struct node {
   struct node *children[MAX_TRIE_CHILDREN];
 } tnode, *trie;
 
+char* int_to_ip(uint32_t ip);
 trie alloc_node(int is_end, int prefix_len, uint32_t prefix);
 trie create_trie();
 trie add_to_trie(trie t, uint32_t prefix, uint32_t mask);

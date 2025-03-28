@@ -6,6 +6,7 @@
 #include "protocols.h"
 #include "queue.h"
 #include "lib.h"
+#include "trie.h"
 
 #define MAX_RTABLE_ENTRIES 65000
 #define MAC_LEN 6
@@ -92,20 +93,29 @@ int main(int argc, char *argv[])
 
 			// TODO verific daca eu sunt destinatia????
 
-			// TODO verific checksum-ul
+			// verific checksum-ul
 			uint16_t package_checksum = ntohs(ip_hder->checksum);
 			ip_hder->checksum = 0;
 			uint16_t actual_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
 			
 			if (package_checksum != actual_checksum) {
-				// pachet "compromis"
+				// pachet corupt
 				free(my_mac);
 
 				// arunc pachetul
 				continue;
 			}
 
-			// TODO verific si actualizez ttl
+			// TODO verific si actualizez TTL-ul
+			if (ip_hder->ttl == 0 || ip_hder->ttl == 1) {
+				// TTL-ul a expirat
+				// TODO trimite ICMP "Time Exceeded" catre sursa
+
+				free(my_mac);
+
+				// arunc pachetul
+				continue;
+			}
 
 			// TODO caut in tabel urmatorul hop + LPM
 

@@ -1,5 +1,5 @@
 PROJECT=router
-SOURCES=router.c lib/queue.c lib/list.c lib/lib.c
+SOURCES=router.c lib/queue.c lib/list.c lib/lib.c lib/trie.c
 LIBRARY=nope
 INCPATHS=include
 LIBPATHS=.
@@ -31,3 +31,6 @@ run_router0: all
 
 run_router1: all
 	./router rtable1.txt rr-0-1 r-0 r-1
+
+trie: lib/trie.c
+	$(CC) -Wall -Werror -Iinclude lib/trie.c -o trie_exec && ./trie_exec

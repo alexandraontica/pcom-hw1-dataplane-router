@@ -4,8 +4,20 @@
 #include <stdio.h>
 #include "trie.h"
 
+char* int_to_ip(uint32_t ip) {
+    uint8_t byte1 = (ip >> 24) & 0xFF;
+    uint8_t byte2 = (ip >> 16) & 0xFF;
+    uint8_t byte3 = (ip >> 8) & 0xFF;
+    uint8_t byte4 = ip & 0xFF;
+
+    char buffer[16];
+    sprintf(buffer, "%u.%u.%u.%u", byte1, byte2, byte3, byte4);
+
+    return strdup(buffer);
+}
+
 trie alloc_node(int is_end, int prefix_len, uint32_t prefix)
-// aloca un nod in arborele de sufixe
+// aloc un nod in arbore
 {
     trie aux = (trie)calloc(1, sizeof(tnode));
     if (aux) {
@@ -22,7 +34,7 @@ trie alloc_node(int is_end, int prefix_len, uint32_t prefix)
 }
 
 trie create_trie()
-// creez arborele de sufixe
+// creez arborele
 {
     trie t = alloc_node(0, 0, 0);
     return t;
@@ -32,8 +44,7 @@ trie create_trie()
 }
 
 trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
-// adaug un nod nou in arborele de sufixe
-
+// adaug un nod nou in arbore
 {
     if (!t) {
         t = create_trie();
@@ -58,6 +69,7 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
     int num_bytes = bits / 8;  // mastile sunt multipli de 8
     
     int current_prefix = 0;
+    int current_len = 0;
 
     // parcurg doar octetii care ma intereseaza (cf mastii)
     // merg pana la penultimul octet important
@@ -66,14 +78,17 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
         // extrag din prefix octetul curent ca sa il adaug in arbore
         uint8_t current_byte = ((prefix >> (8 * i)) & 0xFF);
         current_prefix = ((current_prefix << 8) | current_byte);
+        current_len++;
 
         if (!aux->children[current_byte]) {
-            aux->children[current_byte] = alloc_node(0, num_bytes, (current_prefix << (8 * i)));
+            aux->children[current_byte] = alloc_node(0, current_len, (current_prefix << (8 * i)));
             if (!aux->children[current_byte]) {
                 free_trie(&t);
                 return NULL;
             }
         }
+
+        printf("prefix curent: %s\n", int_to_ip((current_prefix << (8 * i))));
 
         aux = aux->children[current_byte];
     }
@@ -82,9 +97,10 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
     // adaug ultimul nod
     int current_byte = (prefix >> (8 * i)) & 0xFF;
     current_prefix = ((current_prefix << 8) | current_byte);
+    current_len++;
 
     if (!aux->children[current_byte]) {
-        aux->children[current_byte] = alloc_node(1, num_bytes, (current_prefix << (8 * i)));
+        aux->children[current_byte] = alloc_node(1, current_len, (current_prefix << (8 * i)));
         if (!aux->children[current_byte]) {
             free_trie(&t);
             return NULL;
@@ -92,17 +108,52 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask)
     }
     aux = aux->children[current_byte];
     aux->is_end = 1;
-    aux->prefix_len = num_bytes;
+    aux->prefix_len = current_len;
     aux->prefix = (current_prefix << (8 * i));
 
     // (current_prefix << (8 * i)) ar trebui sa fie egal cu prefixul initial at this point
-    printf("Prefix vechi: %u, prefix added to trie: %u\n", prefix, (current_prefix << (8 * i)));
+    printf("Prefix de adaugat: %s, prefix curent: %s\n", int_to_ip(prefix), int_to_ip((current_prefix << (8 * i))));
 
     return t;
 }
 
+uint32_t longest_prefix_match(trie t, uint32_t ip) {
+    if (!t) {
+        return 0;
+    }
+
+    trie aux = t;
+    uint32_t longest_prefix = 0;
+    int longest_len = 0;
+    int current_num_byte = 3; // incep de la ultimul octet
+
+    // parcurg arborele
+    while (aux) {
+        uint8_t current_byte = (ip >> (8 * current_num_byte)) & 0xFF;
+
+        // verific daca am un nod corespunzator octetului curent
+        if (aux->children[current_byte]) {
+            aux = aux->children[current_byte];
+
+            // daca am ajuns la un nod final verific daca prefixul
+            // curent e mai lung decat cel mai lung prefix gasit 
+            // pana acum
+            if (aux->is_end && aux->prefix_len > longest_len) {
+                longest_len = aux->prefix_len;
+                longest_prefix = aux->prefix;
+            }
+        } else {
+            break; // nu mai am copii care sa se potriveasca
+        }
+
+        current_num_byte--;
+    }
+
+    return longest_prefix;
+}
+
 void free_trie(trie *t)
-// elibereaza memoria ocupata de arborele de sufixe
+// elibereaza memoria ocupata de arbore
 {
     if (!(*t)) {
         return;
@@ -117,11 +168,37 @@ void free_trie(trie *t)
     *t = NULL;
 }
 
-int main() {
-    // cod de test sa vad ca am implementat bine
-    // ar fi ceva sa imi pice testele checker-ului din cauza unui segfault aici...
+// int main() {
+//     // cod de test sa vad ca am implementat bine
+//     // ar fi ceva sa imi pice testele checker-ului din cauza unui segfault aici...
 
-    // code
+//     trie t = create_trie();
 
-    return 0;
-}
+//     uint32_t prefix = (192 << 24) | (168 << 16) | (5 << 8) | 0;
+//     uint32_t mask = (255 << 24) | (255 << 16) | (255 << 8) | 0;
+
+//     t = add_to_trie(t, prefix, mask);
+
+//     prefix = (10 << 24) | 0;
+//     mask = (255 << 24) | 0;
+
+//     t = add_to_trie(t, prefix, mask);
+
+//     prefix = (192 << 24) | (167 << 16) | 0;
+//     mask = (255 << 24) | (255 << 16) | 0;
+
+//     t = add_to_trie(t, prefix, mask);
+
+//     prefix = (192 << 24) | 0;
+//     mask = (255 << 24) | 0;
+
+//     t = add_to_trie(t, prefix, mask);
+
+//     uint32_t ip = (192 << 24) | (163 << 16) | (5 << 8) | 3;
+
+//     printf("\nIP: %s\n", int_to_ip(ip));
+//     printf("LPM: %s\n", int_to_ip(longest_prefix_match(t, ip)));
+//     free_trie(&t);
+
+//     return 0;
+// }
