@@ -61,8 +61,11 @@ int main(int argc, char *argv[])
 		}
 
 		// verific daca mi-a fost trimis mie pachetul (sau catre broadcast)
+
 		// TODO verifica daca merge asa sau daca trebuie sa fac memcpy
-		uint8_t dest_mac[MAC_LEN] = eth_hdr->ethr_dhost;
+		// uint8_t dest_mac[MAC_LEN] = eth_hdr->ethr_dhost;
+		uint8_t dest_mac[MAC_LEN];
+		memcpy(dest_mac, eth_hdr->ethr_dhost, MAC_LEN);
 
 		if (memcmp(dest_mac, my_mac, MAC_LEN) != 0 && memcmp(eth_hdr->ethr_dhost, broadcast_mac, MAC_LEN) != 0) {
 			// n-a fost trimis nici catre mine explicit, nici catre broadcast
@@ -84,7 +87,7 @@ int main(int argc, char *argv[])
 
 				// routerul raspunde cf cerintei doar mesajelor ICMP, deci
 				// arunc pachetul
-				continue:
+				continue;
 			}
 
 			// TODO verific daca eu sunt destinatia????
@@ -92,7 +95,7 @@ int main(int argc, char *argv[])
 			// TODO verific checksum-ul
 			uint16_t package_checksum = ntohs(ip_hder->checksum);
 			ip_hder->checksum = 0;
-			uint16_t actual_checksum = ip_checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
+			uint16_t actual_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
 			
 			if (package_checksum != actual_checksum) {
 				// pachet "compromis"
