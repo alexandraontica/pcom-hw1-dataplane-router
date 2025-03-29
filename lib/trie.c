@@ -191,7 +191,8 @@ void free_trie(trie *t)
     *t = NULL;
 }
 
-// int main() {
+// int main() 
+// {
 //     // cod de test sa vad ca am implementat bine
 //     // ar fi ceva sa imi pice testele checker-ului din cauza unui segfault aici...
 

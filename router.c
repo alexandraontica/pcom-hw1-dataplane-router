@@ -22,6 +22,9 @@ const uint8_t broadcast_mac[MAC_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
 struct route_table_entry *rtable;
 int rtable_len;
 
+struct arp_table_entry *static_arp_table;
+int static_arp_table_len;
+
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -38,7 +41,17 @@ int main(int argc, char *argv[])
 
 	rtable_len = read_rtable(argv[1], rtable);
 
-	// imi creez trie-le cu prefixe (pregatesc LPM)
+	// aloc si citesc arp table-ul static
+	static_arp_table = malloc(sizeof(struct arp_table_entry) * 10);
+
+	if (!static_arp_table) {
+		free(rtable);
+		return 1;
+	}
+
+	static_arp_table_len = parse_arp_table("arp_table.txt", static_arp_table);
+
+	// imi creez trie-ul cu prefixe (ma pregatesc pt LPM)
 	trie prefix_trie = create_trie();
 
 	for (int i = 0; i < rtable_len; i++) {
@@ -107,8 +120,6 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// TODO verific daca eu sunt destinatia????
-
 			// verific checksum-ul
 			uint16_t package_checksum = ntohs(ip_hder->checksum);
 			ip_hder->checksum = 0;
@@ -133,8 +144,9 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// LPM + caut interfata urmatorului hop
-			uint32_t ip_addr_dest = ip_hder->dest_addr;
+			// LPM, caut interfata si adresa urmatorului hop
+			// TODO sa verific daca merge asa sau daca trebuie ntohl
+			uint32_t ip_addr_dest = ntohl(ip_hder->dest_addr);
 			LPM lpm = longest_prefix_match(prefix_trie, ip_addr_dest);
 
 			uint32_t next_hop_addr = lpm.ip_addr;
@@ -150,13 +162,28 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// TODO actualizez checksum-ul
+			// actualizez checksum-ul
+			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
+			ip_hder->checksum = htons(new_checksum);
 
-			// TODO actualizez adresa sursa
+			// TODO determin adresa mac a urmatorului hop (ARP)
+			uint32_t next_hop_addre_network = htonl(next_hop_addr);
+			uint8_t next_hop_mac[MAC_LEN];
 
-			// TODO determin adresa urmatorului hop (ARP)
+			for (int i = 0; i < static_arp_table_len; i++) {
+				if (static_arp_table[i].ip == next_hop_addre_network) {
+					memcpy(next_hop_mac, static_arp_table[i].mac, MAC_LEN);
+					break;
+				}
+			}
 
 			// TODO trimit pachet catre urmatorul hop
+			memcpy(eth_hdr->ethr_dhost, next_hop_mac, MAC_LEN);
+			memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
+
+			send_to_link(len, buf, next_hop_interface);
+
+			free(my_mac);
 		}
 
 		// TODO daca nu e ipv4, verific daca e arp
@@ -169,6 +196,7 @@ int main(int argc, char *argv[])
 	}
 
 	free(rtable);
+	free(static_arp_table);
 	free_trie(&prefix_trie);
 }
 
