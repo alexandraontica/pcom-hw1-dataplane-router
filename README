@@ -4,3 +4,9 @@ TODO: free(mac)
 
 adaptare a temei 2 la SDA de anul trecut (arbori de sufixe)
 am creat eu trie le (cu ajutor de la LLM-uri pentru debugging - am avut segfault-uri :(()
+
+la tabela arp nu ne este impus sa folosim un hash table si nici nu este specificat sa avem o implementare care nu e liniara (asa cum este cerut la LPM)
+putem implementa asta cu un hash table dar in C m-as fi complicat ff mult, 
+nu stiu ce hashing function as fi putut folosi ca sa imi mapeze adresele IP
+fara sa am vectori cu numere pe 32 de biti complemtati full
+(in C++ e deja implemetat, dar nu schimb limbajul in mijlocul temei)

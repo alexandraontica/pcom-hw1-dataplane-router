@@ -25,6 +25,29 @@ int rtable_len;
 struct arp_table_entry *static_arp_table;
 int static_arp_table_len;
 
+struct route_table_entry *get_best_route(uint32_t ip_dest) {
+	/* TODO 2.2: Implement the LPM algorithm */
+	/* We can iterate through rtable for (int i = 0; i < rtable_len; i++). Entries in
+	 * the rtable are in network order already */
+
+	struct route_table_entry *best_route = NULL;
+
+	for (int i = 0; i < rtable_len; i++) {
+		if ((rtable[i].prefix & rtable[i].mask) == (ip_dest & rtable[i].mask)) {
+			if (best_route == NULL || best_route->mask < rtable[i].mask) {
+				best_route = &rtable[i];
+			}
+		}
+	}
+
+	if (best_route != NULL) {
+		return best_route;
+	}
+	printf("No route found\n");
+	
+	return NULL;
+}
+
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -55,10 +78,12 @@ int main(int argc, char *argv[])
 	trie prefix_trie = create_trie();
 
 	for (int i = 0; i < rtable_len; i++) {
-		uint32_t prefix = rtable[i].prefix;
-		uint32_t mask = rtable[i].mask;
+		uint32_t prefix = ntohl(rtable[i].prefix);
+		uint32_t mask = ntohl(rtable[i].mask);
 		int interface = rtable[i].interface;
-		uint32_t next_hop = rtable[i].next_hop;
+		uint32_t next_hop = ntohl(rtable[i].next_hop);
+
+		printf("prefix: %s, mask: %s, interface: %d, next hop: %s\n", int_to_ip(prefix), int_to_ip(mask), interface, int_to_ip(next_hop));
 
 		prefix_trie = add_to_trie(prefix_trie, prefix, mask, interface, next_hop);
 
@@ -69,7 +94,6 @@ int main(int argc, char *argv[])
 	}
 
 	while (1) {
-
 		size_t interface;
 		size_t len;
 
@@ -105,8 +129,11 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
+		printf("am verificat adresa mac de destinatie\n");
+
 		// verific daca e de tipul IPv4
 		if (eth_type == ETHR_TYPE_IPv4) {
+			printf("am verificat tipul de pachet, e IPv4\n");
 			struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
 
 			// verific daca mesajul este tip ICMP
@@ -119,6 +146,8 @@ int main(int argc, char *argv[])
 				// arunc pachetul
 				continue;
 			}
+
+			printf("am verificat protocolul, e ICMP\n");
 
 			// verific checksum-ul
 			uint16_t package_checksum = ntohs(ip_hder->checksum);
@@ -133,6 +162,8 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
+			printf("am verificat checksum-ul\n");
+
 			// verific si actualizez TTL-ul
 			if (ip_hder->ttl == 0 || ip_hder->ttl == 1) {
 				// TTL-ul a expirat
@@ -144,6 +175,10 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
+			ip_hder->ttl--;
+
+			printf("am verificat si modificat TTL-ul\n");
+
 			// LPM, caut interfata si adresa urmatorului hop
 			// TODO sa verific daca merge asa sau daca trebuie ntohl
 			uint32_t ip_addr_dest = ntohl(ip_hder->dest_addr);
@@ -151,6 +186,8 @@ int main(int argc, char *argv[])
 
 			uint32_t next_hop_addr = lpm.ip_addr;
 			int next_hop_interface = lpm.interface;
+
+			printf("am gasit interfata %d si adresa %s pt next hop\n", next_hop_interface, int_to_ip(next_hop_addr));
 
 			if (next_hop_interface == -1) {
 				// nu am gasit un prefix care sa se potriveasca
@@ -166,28 +203,49 @@ int main(int argc, char *argv[])
 			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
 			ip_hder->checksum = htons(new_checksum);
 
+			printf("am modificat checksum-ul\n");
+
 			// TODO determin adresa mac a urmatorului hop (ARP)
-			uint32_t next_hop_addre_network = htonl(next_hop_addr);
+			uint32_t next_hop_addr_network = htonl(next_hop_addr);
 			uint8_t next_hop_mac[MAC_LEN];
+			memcpy(next_hop_mac, broadcast_mac, MAC_LEN);
+
+			printf("adresa IP a urmatorului hop host: %s, network: %s\n", int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
 
 			for (int i = 0; i < static_arp_table_len; i++) {
-				if (static_arp_table[i].ip == next_hop_addre_network) {
+				if (static_arp_table[i].ip == next_hop_addr_network) {
 					memcpy(next_hop_mac, static_arp_table[i].mac, MAC_LEN);
 					break;
 				}
 			}
 
+			// TODO delete this?
+			if (memcmp(next_hop_mac, broadcast_mac, MAC_LEN) == 0) {
+				// nu am gasit adresa MAC a urmatorului hop
+				// TODO trimite ICMP "Destination Unreachable" catre sursa
+
+				free(my_mac);
+
+				// arunc pachetul
+				continue;
+			}
+
+			printf("am gasit adresa MAC a urmatorului hop\n");
+
 			// TODO trimit pachet catre urmatorul hop
 			memcpy(eth_hdr->ethr_dhost, next_hop_mac, MAC_LEN);
 			memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
+			printf("am modificat adresele MAC sursa si destinatie\n");
+
 			send_to_link(len, buf, next_hop_interface);
 
-			free(my_mac);
+			printf("am trimis pachetul catre urmatorul hop\n");
 		}
 
 		// TODO daca nu e ipv4, verific daca e arp
 		
+		free(my_mac);
 
     /* Note that packets received are in network order,
 		any header field which has more than 1 byte will need to be conerted to
