@@ -245,6 +245,10 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
+			uint32_t next_hop_addr_network = htonl(next_hop_addr);
+			ip_hder->dest_addr = next_hop_addr_network;
+			ip_hder->source_addr = my_ip_addr;
+
 			// actualizez checksum-ul
 			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
 			ip_hder->checksum = htons(new_checksum);
@@ -252,7 +256,6 @@ int main(int argc, char *argv[])
 			printf("am modificat checksum-ul\n");
 
 			// determin adresa mac a urmatorului hop
-			uint32_t next_hop_addr_network = htonl(next_hop_addr);
 			uint8_t next_hop_mac[MAC_LEN];
 			memcpy(next_hop_mac, broadcast_mac, MAC_LEN);
 
@@ -276,7 +279,7 @@ int main(int argc, char *argv[])
 				queue_enq(waiting_for_arp_reply_queue, &ipv4_packet);
 				
 				// trebuie sa trimit un ARP request catre broadcast
-				send_arp(ARP_OPERATION_REQUEST, my_mac, broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
+				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
 
 				continue;
 			}
@@ -323,23 +326,44 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// TODO verific daca e ARP reply
-
 			printf("ARP reply\n");
 
-			// TODO adaug in cache adresa IP si MAC
+			// adaug in cache adresele IP si MAC
+			// presupun ca nu pot primi ARP reply daca am deja in cache adresa MAC
 			memcpy(arp_cache[arp_cache_len].mac, arp_hdr->shwa, MAC_LEN);
-			arp_cache[arp_cache_len].ip = ntohl(arp_hdr->sprotoa);
+			arp_cache[arp_cache_len].ip = arp_hdr->sprotoa;
 			arp_cache_len++;
 
 			printf("am adaugat in cache adresa IP si MAC\n");
+
+			// caut in coada pachetul care asteapta ARP reply
+			// atentie ca trebuie sa se potriveasca IP-ul sursa din ARP reply
+			// cu IP-ul destinatie din pachetul care asteapta ARP reply
+
+			// trebuie sa pastrez pachetele care nu se potrivesc, altfel le pierd
+			queue not_the_packet_i_wanted = create_queue();
+
+			while (!queue_empty(waiting_for_arp_reply_queue)) {
+				packet *ipv4_packet = (packet *)queue_deq(waiting_for_arp_reply_queue);
+				struct ip_hdr *ip_hder = (struct ip_hdr *)(ipv4_packet->buf + sizeof(struct ether_hdr));
+
+				if (ip_hder->dest_addr == arp_hdr->sprotoa) {
+					// am gasit pachetul care astepta ARP reply
+					memcpy(eth_hdr->ethr_dhost, arp_hdr->shwa, MAC_LEN);
+					memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
+
+					send_to_link(ipv4_packet->len, ipv4_packet->buf, interface);
+				} else {
+					queue_enq(not_the_packet_i_wanted, ipv4_packet);
+				}
+			}
+
+			// pun inapoi pachetele care nu s-au potrivit
+			while (!queue_empty(not_the_packet_i_wanted)) {
+				packet *ipv4_packet = (packet *)queue_deq(not_the_packet_i_wanted);
+				queue_enq(waiting_for_arp_reply_queue, ipv4_packet);
+			}
 		}
-
-		// TODO daca nu e ipv4, verific daca e arp
-
-		// TODO daca e arp, il parsez
-
-		// TODO adaug un nou entry in cache
 		
 		free(my_mac);
 
