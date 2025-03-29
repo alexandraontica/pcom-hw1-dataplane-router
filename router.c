@@ -62,6 +62,7 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 	memcpy(arp_hdr.shwa, src_mac, MAC_LEN);
 	arp_hdr.sprotoa = htonl(src_ip);
 	memcpy(arp_hdr.thwa, dest_mac, MAC_LEN);
+
 	arp_hdr.tprotoa = htonl(dest_ip);
 
 	// construiesc pachetul ca sa pot sa il trimit
@@ -73,6 +74,8 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 
 	// trimit pachetul
 	send_to_link(len, buf, interface);
+	printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
+		 int_to_ip(src_ip), int_to_ip(dest_ip));
 }
 
 int main(int argc, char *argv[])
@@ -280,7 +283,10 @@ int main(int argc, char *argv[])
 				
 				// trebuie sa trimit un ARP request catre broadcast
 				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
-
+				
+				printf("am trimis ARP request catre broadcast\n");
+				
+				free(my_mac);
 				continue;
 			}
 
@@ -307,6 +313,7 @@ int main(int argc, char *argv[])
 				// accept doar operatii de tip request sau reply
 				free(my_mac);
 
+				printf("am aruncat pachetul, nu e ARP request sau reply\n");
 				// arunc pachetul
 				continue;
 			}
@@ -320,13 +327,17 @@ int main(int argc, char *argv[])
 				// trimit ARP reply cu mac-ul meu
 				uint8_t dest_mac[MAC_LEN];
 				memcpy(dest_mac, arp_hdr->shwa, MAC_LEN);
-				uint32_t dest_ip = ntohl(arp_hdr->sprotoa);
+				uint32_t dest_ip = arp_hdr->sprotoa;
 
 				send_arp(ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, dest_ip, interface);
 				continue;
 			}
 
 			printf("ARP reply\n");
+			printf("Am primit ARP Reply: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+				int_to_ip(arp_hdr->sprotoa),
+				arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
+				arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 
 			// adaug in cache adresele IP si MAC
 			// presupun ca nu pot primi ARP reply daca am deja in cache adresa MAC
@@ -347,8 +358,12 @@ int main(int argc, char *argv[])
 				packet *ipv4_packet = (packet *)queue_deq(waiting_for_arp_reply_queue);
 				struct ip_hdr *ip_hder = (struct ip_hdr *)(ipv4_packet->buf + sizeof(struct ether_hdr));
 
+				printf("am scos un pachet din coada, ip dest %s, arp ip %s\n", 
+					int_to_ip(ip_hder->dest_addr), int_to_ip(arp_hdr->sprotoa));
+
 				if (ip_hder->dest_addr == arp_hdr->sprotoa) {
 					// am gasit pachetul care astepta ARP reply
+					printf("am gasit pachetul care astepta ARP reply\n");
 					memcpy(eth_hdr->ethr_dhost, arp_hdr->shwa, MAC_LEN);
 					memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
