@@ -8,7 +8,7 @@
 #include "lib.h"
 #include "trie.h"
 
-#define MAX_RTABLE_ENTRIES 65000
+#define MAX_RTABLE_ENTRIES 100000
 #define MAC_LEN 6
 #define IP_LEN 4
 #define BROADCAST_MAC 0xFFFFFFFFFFFF
@@ -29,7 +29,7 @@ typedef struct {
 } packet;
 
 // l-as fi lasat ca macro, dar fac memcmp pe el si da segfault
-const uint8_t broadcast_mac[MAC_LEN] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+const uint8_t broadcast_mac[MAC_LEN] = {255, 255, 255, 255, 255, 255};
 
 // route table (ca in laborator)
 struct route_table_entry *rtable;
@@ -41,41 +41,45 @@ int rtable_len;
 struct arp_table_entry arp_cache[MAX_ARP_ENTRIES];
 int arp_cache_len;
 
-void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
+char arp_pachet[sizeof(struct ether_hdr) + sizeof(struct arp_hdr)];
+
+void send_arp(char *buf, int len, int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
 	uint32_t src_ip, uint32_t dest_ip, int interface)
 // trimit un pachet ARP de tipul `arp_type` (request sau reply)
 {
-	struct ether_hdr eth_hdr;
-	struct arp_hdr arp_hdr;
+	// struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
+	// struct arp_hdr *arp_hdr = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
+
+	struct ether_hdr *eth_hdr = malloc(sizeof(struct ether_hdr));
+	struct arp_hdr *arp_hdr = malloc(sizeof(struct arp_hdr));
 
 	// populez header-ul ethernet
-	eth_hdr.ethr_type = htons(ETHR_TYPE_ARP);
-	memcpy(eth_hdr.ethr_dhost, broadcast_mac, MAC_LEN);
-	memcpy(eth_hdr.ethr_shost, src_mac, MAC_LEN);
+	eth_hdr->ethr_type = htons(ETHR_TYPE_ARP);
+	memcpy(eth_hdr->ethr_dhost, dest_mac, MAC_LEN);
+	memcpy(eth_hdr->ethr_shost, src_mac, MAC_LEN);
 
 	// poplez header-ul ARP
-	arp_hdr.hw_type = htons(HARDWARE_TYPE_ETHERNET);
-	arp_hdr.proto_type = htons(ETHR_TYPE_IPv4);
-	arp_hdr.hw_len = MAC_LEN;
-	arp_hdr.proto_len = IP_LEN;
-	arp_hdr.opcode = htons(arp_type);
-	memcpy(arp_hdr.shwa, src_mac, MAC_LEN);
-	arp_hdr.sprotoa = htonl(src_ip);
-	memcpy(arp_hdr.thwa, dest_mac, MAC_LEN);
-
-	arp_hdr.tprotoa = htonl(dest_ip);
+	arp_hdr->hw_type = htons(HARDWARE_TYPE_ETHERNET);
+	arp_hdr->proto_type = htons(ETHR_TYPE_IPv4);
+	arp_hdr->hw_len = MAC_LEN;
+	arp_hdr->proto_len = IP_LEN;
+	arp_hdr->opcode = htons(arp_type);
+	memcpy(arp_hdr->shwa, src_mac, MAC_LEN);
+	arp_hdr->sprotoa = htonl(src_ip);
+	memcpy(arp_hdr->thwa, dest_mac, MAC_LEN);
+	arp_hdr->tprotoa = htonl(dest_ip);
 
 	// construiesc pachetul ca sa pot sa il trimit
-	int len = sizeof(struct ether_hdr) + sizeof(struct arp_hdr);
-	char buf[len];
+	int len_local = sizeof(struct ether_hdr) + sizeof(struct arp_hdr);
+	char buf_local[len_local];
 
-	memcpy(buf, &eth_hdr, sizeof(struct ether_hdr));
-	memcpy(buf + sizeof(struct ether_hdr), &arp_hdr, sizeof(struct arp_hdr));
+	memcpy(buf_local, eth_hdr, sizeof(struct ether_hdr));
+	memcpy(buf_local + sizeof(struct ether_hdr), arp_hdr, sizeof(struct arp_hdr));
 
 	// trimit pachetul
-	send_to_link(len, buf, interface);
+	send_to_link(len_local, buf_local, interface);
 	printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
-		 int_to_ip(src_ip), int_to_ip(dest_ip));
+		 int_to_ip(src_ip), int_to_ip(ntohl(dest_ip)));
 }
 
 int main(int argc, char *argv[])
@@ -150,6 +154,8 @@ int main(int argc, char *argv[])
 
 		uint32_t my_ip_addr = ntohl(my_ip.s_addr);  // https://www.gta.ufrj.br/ensino/eel878/sockets/sockaddr_inman.html
 		// nu puteau sa foloseasca direct unsigned long, au trebuit sa puna campul intr-o structura :(
+		
+		printf("my ip address: %s\n", int_to_ip(my_ip_addr));
 
 		struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
 
@@ -178,25 +184,33 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		printf("am verificat adresa mac de destinatie\n");
+		// printf("am verificat adresa mac de destinatie\n");
 
 		// verific daca e de tipul IPv4
 		if (eth_type == ETHR_TYPE_IPv4) {
 			printf("am verificat tipul de pachet, e IPv4\n");
 			struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
 
-			// verific daca mesajul este tip ICMP
-			uint8_t protocol = ip_hder->proto;
+			// TODO sa vad daca intai tre sa verific checksum-ul si apoi daca e al meu pachetul
+			if (ip_hder->dest_addr == my_ip_addr) {
+				// pachetul e trimis catre mine
+				printf("am primit pachet catre mine\n");
 
-			if (protocol != ICMP_PROTOCOL_NUMBER) {
-				free(my_mac);
+				// verific daca mesajul este tip ICMP
+				uint8_t protocol = ip_hder->proto;
 
-				// routerul raspunde cf cerintei doar mesajelor ICMP, deci
-				// arunc pachetul
-				continue;
+				if (protocol != ICMP_PROTOCOL_NUMBER) {
+					free(my_mac);
+
+					// routerul raspunde cf cerintei doar mesajelor ICMP, deci
+					// arunc pachetul
+					continue;
+				}
+
+				printf("am verificat protocolul, e ICMP\n");
+
+				// TODO trimit ICMP echo reply
 			}
-
-			printf("am verificat protocolul, e ICMP\n");
 
 			// verific checksum-ul
 			uint16_t packet_checksum = ntohs(ip_hder->checksum);
@@ -282,7 +296,7 @@ int main(int argc, char *argv[])
 				queue_enq(waiting_for_arp_reply_queue, &ipv4_packet);
 				
 				// trebuie sa trimit un ARP request catre broadcast
-				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
+				send_arp(buf, len, ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
 				
 				printf("am trimis ARP request catre broadcast\n");
 				
@@ -304,6 +318,7 @@ int main(int argc, char *argv[])
 		} else if (eth_type == ETHR_TYPE_ARP) {
 			printf("ARP\n");
 
+			struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
 			struct arp_hdr *arp_hdr = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
 
 			// verific daca e ARP request sau reply
@@ -324,12 +339,41 @@ int main(int argc, char *argv[])
 			if (opcode == ARP_OPERATION_REQUEST) {
 				printf("ARP request\n");
 
-				// trimit ARP reply cu mac-ul meu
-				uint8_t dest_mac[MAC_LEN];
-				memcpy(dest_mac, arp_hdr->shwa, MAC_LEN);
-				uint32_t dest_ip = arp_hdr->sprotoa;
+				// verific daca e ARP request catre mine
+				if (ntohl(arp_hdr->tprotoa) == my_ip_addr) {
+					// trimit ARP reply cu mac-ul meu
+					uint8_t dest_mac[MAC_LEN];
+					memcpy(dest_mac, eth_hdr->ethr_shost, MAC_LEN);
+					uint32_t dest_ip = arp_hdr->sprotoa;
 
-				send_arp(ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, dest_ip, interface);
+					printf("am primit ARP request catre mine, trimit ARP reply\n");
+					printf("Am primit ARP Request: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+						int_to_ip(dest_ip),
+						arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
+						arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
+					
+					send_arp(buf, len, ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
+					continue;
+				}
+
+				// nu e ARP request catre mine
+				// il dau mai departe
+				struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
+				struct arp_hdr *arp_hdr = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
+
+				memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
+				memcpy(eth_hdr->ethr_dhost, broadcast_mac, MAC_LEN);
+				memcpy(arp_hdr->thwa, broadcast_mac, MAC_LEN);
+
+				// memcpy(arp_hdr->shwa, my_mac, MAC_LEN);
+				// arp_hdr->sprotoa = my_ip_addr;
+
+				send_to_link(len, buf, interface);
+
+				printf("am trimis ARP request mai departe\n");
+
+				free(my_mac);
+
 				continue;
 			}
 
