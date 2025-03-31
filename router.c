@@ -69,6 +69,16 @@ void send_arp(char *buf, int len, int arp_type, uint8_t src_mac[MAC_LEN], uint8_
 	memcpy(arp_hdr->thwa, dest_mac, MAC_LEN);
 	arp_hdr->tprotoa = htonl(dest_ip);
 
+	if (arp_type == ARP_OPERATION_REQUEST) {
+		// trimit ARP request
+
+		// in requesturile pe care routerul meu le primeste
+		// adresa mac target e setata pe zero
+		uint8_t zeros[6] = {0, 0, 0, 0, 0, 0};
+
+		memcpy(arp_hdr->thwa, zeros, MAC_LEN);
+	}
+
 	// construiesc pachetul ca sa pot sa il trimit
 	int len_local = sizeof(struct ether_hdr) + sizeof(struct arp_hdr);
 	char buf_local[len_local];
@@ -79,7 +89,7 @@ void send_arp(char *buf, int len, int arp_type, uint8_t src_mac[MAC_LEN], uint8_
 	// trimit pachetul
 	send_to_link(len_local, buf_local, interface);
 	printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
-		 int_to_ip(src_ip), int_to_ip(ntohl(dest_ip)));
+		 int_to_ip(src_ip), int_to_ip(dest_ip));
 }
 
 int main(int argc, char *argv[])
@@ -279,6 +289,26 @@ int main(int argc, char *argv[])
 			printf("adresa IP a urmatorului hop host: %s, network: %s\n", 
 				int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
 
+			// imi obtin adresele MAC si IP
+		my_mac = (uint8_t *)malloc(MAC_LEN);
+		get_interface_mac(next_hop_interface, my_mac);
+
+		// struct in_addr my_ip;
+		// https://man7.org/linux/man-pages/man3/inet_pton.3.html
+		result = inet_pton(AF_INET, get_interface_ip(next_hop_interface), &my_ip);
+
+		if (result <= 0) {
+			free(my_mac);
+
+			// arunc pachetul
+			continue;
+		}
+
+		my_ip_addr = ntohl(my_ip.s_addr);  // https://www.gta.ufrj.br/ensino/eel878/sockets/sockaddr_inman.html
+		// nu puteau sa foloseasca direct unsigned long, au trebuit sa puna campul intr-o structura :(
+		
+		printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
+
 			// caut in cache daca exista deja un entry pt adresa ip curenta
 			for (int i = 0; i < arp_cache_len; i++) {
 				if (arp_cache[i].ip == next_hop_addr_network) {
@@ -422,6 +452,8 @@ int main(int argc, char *argv[])
 				packet *ipv4_packet = (packet *)queue_deq(not_the_packet_i_wanted);
 				queue_enq(waiting_for_arp_reply_queue, ipv4_packet);
 			}
+		} else {
+			printf("pachet de tipul %d\n", eth_type);
 		}
 		
 		free(my_mac);
