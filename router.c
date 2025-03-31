@@ -274,7 +274,7 @@ int main(int argc, char *argv[])
 
 			uint32_t next_hop_addr_network = htonl(next_hop_addr);
 			ip_hder->dest_addr = next_hop_addr_network;
-			ip_hder->source_addr = my_ip_addr;
+			// ip_hder->source_addr = my_ip_addr;
 
 			// actualizez checksum-ul
 			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
@@ -289,25 +289,26 @@ int main(int argc, char *argv[])
 			printf("adresa IP a urmatorului hop host: %s, network: %s\n", 
 				int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
 
-			// imi obtin adresele MAC si IP
-		my_mac = (uint8_t *)malloc(MAC_LEN);
-		get_interface_mac(next_hop_interface, my_mac);
+			// imi reobtin adresele MAC si IP
+			// interfete diferite => adrese diferite
+			my_mac = (uint8_t *)malloc(MAC_LEN);
+			get_interface_mac(next_hop_interface, my_mac);
 
-		// struct in_addr my_ip;
-		// https://man7.org/linux/man-pages/man3/inet_pton.3.html
-		result = inet_pton(AF_INET, get_interface_ip(next_hop_interface), &my_ip);
+			result = inet_pton(AF_INET, get_interface_ip(next_hop_interface), &my_ip);
 
-		if (result <= 0) {
-			free(my_mac);
+			if (result <= 0) {
+				free(my_mac);
 
-			// arunc pachetul
-			continue;
-		}
+				// arunc pachetul
+				continue;
+			}
 
-		my_ip_addr = ntohl(my_ip.s_addr);  // https://www.gta.ufrj.br/ensino/eel878/sockets/sockaddr_inman.html
-		// nu puteau sa foloseasca direct unsigned long, au trebuit sa puna campul intr-o structura :(
+			my_ip_addr = ntohl(my_ip.s_addr);
 		
-		printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
+			printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
+
+			// ip_hder->dest_addr = next_hop_addr_network;
+			// ip_hder->source_addr = htonl(my_ip_addr);
 
 			// caut in cache daca exista deja un entry pt adresa ip curenta
 			for (int i = 0; i < arp_cache_len; i++) {
@@ -341,6 +342,9 @@ int main(int argc, char *argv[])
 			memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
 			printf("am modificat adresele MAC sursa si destinatie\n");
+
+			// ip_hder->dest_addr = next_hop_addr_network;
+			// ip_hder->source_addr = htonl(my_ip_addr);
 
 			send_to_link(len, buf, next_hop_interface);
 
@@ -409,7 +413,7 @@ int main(int argc, char *argv[])
 
 			printf("ARP reply\n");
 			printf("Am primit ARP Reply: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
-				int_to_ip(arp_hdr->sprotoa),
+				int_to_ip(ntohl(arp_hdr->sprotoa)),
 				arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
 				arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 
@@ -452,8 +456,6 @@ int main(int argc, char *argv[])
 				packet *ipv4_packet = (packet *)queue_deq(not_the_packet_i_wanted);
 				queue_enq(waiting_for_arp_reply_queue, ipv4_packet);
 			}
-		} else {
-			printf("pachet de tipul %d\n", eth_type);
 		}
 		
 		free(my_mac);
