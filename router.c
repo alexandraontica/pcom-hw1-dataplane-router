@@ -194,7 +194,7 @@ int main(int argc, char *argv[])
 			continue;
 		}
 
-		// printf("am verificat adresa mac de destinatie\n");
+		printf("am verificat adresa mac de destinatie\n");
 
 		// verific daca e de tipul IPv4
 		if (eth_type == ETHR_TYPE_IPv4) {
@@ -256,7 +256,7 @@ int main(int argc, char *argv[])
 			uint32_t ip_addr_dest = ntohl(ip_hder->dest_addr);
 			LPM lpm = longest_prefix_match(prefix_trie, ip_addr_dest);
 
-			uint32_t next_hop_addr = lpm.ip_addr;
+			uint32_t next_hop_addr = lpm.ip_addr;  // puteam cred sa folosesc direct ip_hder->dest_addr
 			int next_hop_interface = lpm.interface;
 
 			printf("am gasit interfata %d si adresa %s pt next hop\n", 
@@ -273,7 +273,7 @@ int main(int argc, char *argv[])
 			}
 
 			uint32_t next_hop_addr_network = htonl(next_hop_addr);
-			ip_hder->dest_addr = next_hop_addr_network;
+			// ip_hder->dest_addr = next_hop_addr_network;
 			// ip_hder->source_addr = my_ip_addr;
 
 			// actualizez checksum-ul
@@ -290,7 +290,7 @@ int main(int argc, char *argv[])
 				int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
 
 			// imi reobtin adresele MAC si IP
-			// interfete diferite => adrese diferite
+			// interfete diferite => adrese diferite (cat timp am pierdut ca nu stiam asta...)
 			my_mac = (uint8_t *)malloc(MAC_LEN);
 			get_interface_mac(next_hop_interface, my_mac);
 
@@ -306,9 +306,6 @@ int main(int argc, char *argv[])
 			my_ip_addr = ntohl(my_ip.s_addr);
 		
 			printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
-
-			// ip_hder->dest_addr = next_hop_addr_network;
-			// ip_hder->source_addr = htonl(my_ip_addr);
 
 			// caut in cache daca exista deja un entry pt adresa ip curenta
 			for (int i = 0; i < arp_cache_len; i++) {
@@ -342,9 +339,6 @@ int main(int argc, char *argv[])
 			memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
 			printf("am modificat adresele MAC sursa si destinatie\n");
-
-			// ip_hder->dest_addr = next_hop_addr_network;
-			// ip_hder->source_addr = htonl(my_ip_addr);
 
 			send_to_link(len, buf, next_hop_interface);
 
@@ -389,26 +383,6 @@ int main(int argc, char *argv[])
 					send_arp(buf, len, ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
 					continue;
 				}
-
-				// nu e ARP request catre mine
-				// il dau mai departe
-				struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
-				struct arp_hdr *arp_hdr = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
-
-				memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
-				memcpy(eth_hdr->ethr_dhost, broadcast_mac, MAC_LEN);
-				memcpy(arp_hdr->thwa, broadcast_mac, MAC_LEN);
-
-				// memcpy(arp_hdr->shwa, my_mac, MAC_LEN);
-				// arp_hdr->sprotoa = my_ip_addr;
-
-				send_to_link(len, buf, interface);
-
-				printf("am trimis ARP request mai departe\n");
-
-				free(my_mac);
-
-				continue;
 			}
 
 			printf("ARP reply\n");
