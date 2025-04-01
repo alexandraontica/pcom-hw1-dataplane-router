@@ -19,6 +19,14 @@
 #define HARDWARE_TYPE_ETHERNET 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REQUEST 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REPLY 2  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
+#define ICMP_DESTINATION_UNREACHABLE 3
+#define ICMP_TIME_EXCEEDED 11
+#define ICMP_ECHO_REPLY 0
+#define ICMP_ECHO_REQUEST 8
+#define ICMP_CODE 0
+#define DEFAULT_TTL 64
+#define BITS_64 8  // in cerinta scrie ca trebuie sa salvez cand trimit un ICMP
+				   // 64 de biti (adica 8 octeti) din ce e deasupra header-ului IP
 
 // cand trimit pachetul mai departe, imi trebuie si lungimea lui
 // creez structura packet ca sa adaug in coada nu doar continutul
@@ -43,7 +51,7 @@ int arp_cache_len;
 
 char arp_pachet[sizeof(struct ether_hdr) + sizeof(struct arp_hdr)];
 
-void send_arp(char *buf, int len, int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
+void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
 	uint32_t src_ip, uint32_t dest_ip, int interface)
 // trimit un pachet ARP de tipul `arp_type` (request sau reply)
 {
@@ -90,6 +98,122 @@ void send_arp(char *buf, int len, int arp_type, uint8_t src_mac[MAC_LEN], uint8_
 	send_to_link(len_local, buf_local, interface);
 	printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
 		 int_to_ip(src_ip), int_to_ip(dest_ip));
+}
+
+void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
+    uint32_t src_ip, uint32_t dest_ip, int interface)
+{
+    // struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
+    struct ip_hdr *ip_hdr = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
+    
+    // construiesc pachetul (3 headere)
+    char buf_local[MAX_PACKET_LEN];
+    struct ether_hdr *new_eth_hdr = (struct ether_hdr *)buf_local;
+    struct ip_hdr *new_ip_hdr = (struct ip_hdr *)(buf_local + sizeof(struct ether_hdr));
+    struct icmp_hdr *new_icmp_hdr = (struct icmp_hdr *)(buf_local + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+    
+    // populez headerul ethernet
+    memcpy(new_eth_hdr->ethr_dhost, dest_mac, MAC_LEN);
+    memcpy(new_eth_hdr->ethr_shost, src_mac, MAC_LEN);
+    new_eth_hdr->ethr_type = htons(ETHR_TYPE_IPv4);
+    
+    // populez headerul IP
+    memcpy(new_ip_hdr, ip_hdr, sizeof(struct ip_hdr));
+    new_ip_hdr->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + BITS_64);
+    new_ip_hdr->ttl = DEFAULT_TTL;
+    new_ip_hdr->proto = ICMP_PROTOCOL_NUMBER;
+    new_ip_hdr->source_addr = htonl(src_ip);
+    new_ip_hdr->dest_addr = htonl(dest_ip);
+    new_ip_hdr->checksum = 0;
+    new_ip_hdr->checksum = htons(checksum((uint16_t *)new_ip_hdr, sizeof(struct ip_hdr)));
+    
+    // populez headerul ICMP
+    new_icmp_hdr->mtype = icmp_type;
+    new_icmp_hdr->mcode = ICMP_CODE;
+    
+    // adaug informatia (header-ul IP + 64 de biti deasupra header-ului IP)
+    char *payload = buf_local + sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + sizeof(struct icmp_hdr);
+    memcpy(payload, ip_hdr, sizeof(struct ip_hdr));
+    memcpy(payload + sizeof(struct ip_hdr), buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr), BITS_64);
+    
+    // caclulez checksum-ul
+    int icmp_len = sizeof(struct icmp_hdr) + sizeof(struct ip_hdr) + BITS_64;
+    new_icmp_hdr->check = 0;
+    new_icmp_hdr->check = htons(checksum((uint16_t *)new_icmp_hdr, icmp_len));
+    
+    // trimit pachetul
+    int packet_len = sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + icmp_len;
+    send_to_link(packet_len, buf_local, interface);
+    
+    printf("Trimit ICMP %d: src_ip=%s, dest_ip=%s\n", icmp_type, int_to_ip(src_ip), int_to_ip(dest_ip));
+}
+
+void send_icmp_echo_reply(char *buf, int len, int interface) {
+    // Get headers from received packet
+    struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
+    struct ip_hdr *ip_hdr = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
+    struct icmp_hdr *icmp_hdr = (struct icmp_hdr *)(buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+    
+    // Verify it's actually an ICMP Echo Request
+    if (ip_hdr->proto != ICMP_PROTOCOL_NUMBER || icmp_hdr->mtype != ICMP_ECHO_REQUEST) {
+        return;
+    }
+    
+    // Prepare reply buffer
+    char reply_buf[MAX_PACKET_LEN];
+    
+    // 1. Ethernet header (swap src and dest MAC)
+    struct ether_hdr *reply_eth = (struct ether_hdr *)reply_buf;
+    memcpy(reply_eth->ethr_dhost, eth_hdr->ethr_shost, MAC_LEN);
+    get_interface_mac(interface, reply_eth->ethr_shost);
+    reply_eth->ethr_type = htons(ETHR_TYPE_IPv4);
+    
+    // 2. IP header (swap src and dest IP)
+    struct ip_hdr *reply_ip = (struct ip_hdr *)(reply_buf + sizeof(struct ether_hdr));
+    memcpy(reply_ip, ip_hdr, sizeof(struct ip_hdr));
+    
+    reply_ip->ver = 4;
+    reply_ip->ihl = 5;
+    reply_ip->tos = 0;
+    reply_ip->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + 
+                       (ntohs(ip_hdr->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr)));
+    reply_ip->id = htons(0);
+    reply_ip->frag = htons(0);
+    reply_ip->ttl = DEFAULT_TTL;
+    reply_ip->proto = ICMP_PROTOCOL_NUMBER;
+    reply_ip->checksum = 0;
+    
+    // Swap source and destination IP addresses
+    reply_ip->source_addr = ip_hdr->dest_addr;
+    reply_ip->dest_addr = ip_hdr->source_addr;
+    
+    // Calculate IP checksum
+    reply_ip->checksum = htons(checksum((uint16_t *)reply_ip, sizeof(struct ip_hdr)));
+    
+    // 3. ICMP header
+    struct icmp_hdr *reply_icmp = (struct icmp_hdr *)(reply_buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+    reply_icmp->mtype = ICMP_ECHO_REPLY;
+    reply_icmp->mcode = 0;
+    reply_icmp->check = 0;
+    
+    // Copy the rest of the ICMP payload (identifier, sequence number, and data)
+    size_t icmp_payload_len = ntohs(ip_hdr->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr);
+    memcpy((char *)reply_icmp + sizeof(struct icmp_hdr),
+           (char *)icmp_hdr + sizeof(struct icmp_hdr),
+           icmp_payload_len);
+    
+    // Calculate ICMP checksum
+    reply_icmp->check = htons(checksum((uint16_t *)reply_icmp, 
+                                     sizeof(struct icmp_hdr) + icmp_payload_len));
+    
+    // Calculate total packet length
+    int reply_len = sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + 
+                   sizeof(struct icmp_hdr) + icmp_payload_len;
+    
+    // Send the reply
+    send_to_link(reply_len, reply_buf, interface);
+    
+    printf("Sent ICMP Echo Reply to %s\n", int_to_ip(ntohl(reply_ip->dest_addr)));
 }
 
 int main(int argc, char *argv[])
@@ -201,7 +325,6 @@ int main(int argc, char *argv[])
 			printf("am verificat tipul de pachet, e IPv4\n");
 			struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
 
-			// TODO sa vad daca intai tre sa verific checksum-ul si apoi daca e al meu pachetul
 			if (ip_hder->dest_addr == my_ip_addr) {
 				// pachetul e trimis catre mine
 				printf("am primit pachet catre mine\n");
@@ -219,7 +342,11 @@ int main(int argc, char *argv[])
 
 				printf("am verificat protocolul, e ICMP\n");
 
-				// TODO trimit ICMP echo reply
+				// trimit ICMP echo reply
+				send_icmp_echo_reply(buf, len, interface);
+				
+				free(my_mac);
+				continue;
 			}
 
 			// verific checksum-ul
@@ -240,7 +367,8 @@ int main(int argc, char *argv[])
 			// verific si actualizez TTL-ul
 			if (!ip_hder->ttl || ip_hder->ttl == 1) {
 				// TTL-ul a expirat
-				// TODO trimit ICMP "Time Exceeded" catre sursa
+				// trimit ICMP "Time Exceeded" catre sursa
+				send_icmp_when_error(buf, len, ICMP_TIME_EXCEEDED, my_mac, eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
 
 				free(my_mac);
 
@@ -264,7 +392,8 @@ int main(int argc, char *argv[])
 
 			if (next_hop_interface == -1) {
 				// nu am gasit un prefix care sa se potriveasca
-				// TODO trimit ICMP "Destination Unreachable" catre sursa
+				// trimit ICMP "Destination Unreachable" catre sursa
+				send_icmp_when_error(buf, len, ICMP_DESTINATION_UNREACHABLE, my_mac, eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
 				
 				free(my_mac);
 
@@ -324,7 +453,7 @@ int main(int argc, char *argv[])
 				queue_enq(waiting_for_arp_reply_queue, &ipv4_packet);
 				
 				// trebuie sa trimit un ARP request catre broadcast
-				send_arp(buf, len, ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
+				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
 				
 				printf("am trimis ARP request catre broadcast\n");
 				
@@ -380,7 +509,9 @@ int main(int argc, char *argv[])
 						arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
 						arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 					
-					send_arp(buf, len, ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
+					send_arp(ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
+					
+					free(my_mac);
 					continue;
 				}
 			}
@@ -401,7 +532,7 @@ int main(int argc, char *argv[])
 
 			// caut in coada pachetul care asteapta ARP reply
 			// atentie ca trebuie sa se potriveasca IP-ul sursa din ARP reply
-			// cu IP-ul destinatie din pachetul care asteapta ARP reply
+			// cu IP-ul destinatie din pachetul care asteapta ARP reply (din coada)
 
 			// trebuie sa pastrez pachetele care nu se potrivesc, altfel le pierd
 			queue not_the_packet_i_wanted = create_queue();
