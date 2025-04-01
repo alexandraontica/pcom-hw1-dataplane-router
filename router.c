@@ -148,74 +148,6 @@ void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC
     printf("Trimit ICMP %d: src_ip=%s, dest_ip=%s\n", icmp_type, int_to_ip(src_ip), int_to_ip(dest_ip));
 }
 
-void send_icmp_echo_reply(char *buf, int len, int interface) {
-    // Get headers from received packet
-    struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
-    struct ip_hdr *ip_hdr = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
-    struct icmp_hdr *icmp_hdr = (struct icmp_hdr *)(buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
-    
-    // Verify it's actually an ICMP Echo Request
-    if (ip_hdr->proto != ICMP_PROTOCOL_NUMBER || icmp_hdr->mtype != ICMP_ECHO_REQUEST) {
-        return;
-    }
-    
-    // Prepare reply buffer
-    char reply_buf[MAX_PACKET_LEN];
-    
-    // 1. Ethernet header (swap src and dest MAC)
-    struct ether_hdr *reply_eth = (struct ether_hdr *)reply_buf;
-    memcpy(reply_eth->ethr_dhost, eth_hdr->ethr_shost, MAC_LEN);
-    get_interface_mac(interface, reply_eth->ethr_shost);
-    reply_eth->ethr_type = htons(ETHR_TYPE_IPv4);
-    
-    // 2. IP header (swap src and dest IP)
-    struct ip_hdr *reply_ip = (struct ip_hdr *)(reply_buf + sizeof(struct ether_hdr));
-    memcpy(reply_ip, ip_hdr, sizeof(struct ip_hdr));
-    
-    reply_ip->ver = 4;
-    reply_ip->ihl = 5;
-    reply_ip->tos = 0;
-    reply_ip->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + 
-                       (ntohs(ip_hdr->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr)));
-    reply_ip->id = htons(0);
-    reply_ip->frag = htons(0);
-    reply_ip->ttl = DEFAULT_TTL;
-    reply_ip->proto = ICMP_PROTOCOL_NUMBER;
-    reply_ip->checksum = 0;
-    
-    // Swap source and destination IP addresses
-    reply_ip->source_addr = ip_hdr->dest_addr;
-    reply_ip->dest_addr = ip_hdr->source_addr;
-    
-    // Calculate IP checksum
-    reply_ip->checksum = htons(checksum((uint16_t *)reply_ip, sizeof(struct ip_hdr)));
-    
-    // 3. ICMP header
-    struct icmp_hdr *reply_icmp = (struct icmp_hdr *)(reply_buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
-    reply_icmp->mtype = ICMP_ECHO_REPLY;
-    reply_icmp->mcode = 0;
-    reply_icmp->check = 0;
-    
-    // Copy the rest of the ICMP payload (identifier, sequence number, and data)
-    size_t icmp_payload_len = ntohs(ip_hdr->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr);
-    memcpy((char *)reply_icmp + sizeof(struct icmp_hdr),
-           (char *)icmp_hdr + sizeof(struct icmp_hdr),
-           icmp_payload_len);
-    
-    // Calculate ICMP checksum
-    reply_icmp->check = htons(checksum((uint16_t *)reply_icmp, 
-                                     sizeof(struct icmp_hdr) + icmp_payload_len));
-    
-    // Calculate total packet length
-    int reply_len = sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + 
-                   sizeof(struct icmp_hdr) + icmp_payload_len;
-    
-    // Send the reply
-    send_to_link(reply_len, reply_buf, interface);
-    
-    printf("Sent ICMP Echo Reply to %s\n", int_to_ip(ntohl(reply_ip->dest_addr)));
-}
-
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -325,7 +257,7 @@ int main(int argc, char *argv[])
 			printf("am verificat tipul de pachet, e IPv4\n");
 			struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
 
-			if (ip_hder->dest_addr == my_ip_addr) {
+			if (ntohl(ip_hder->dest_addr) == my_ip_addr) {
 				// pachetul e trimis catre mine
 				printf("am primit pachet catre mine\n");
 
@@ -342,8 +274,36 @@ int main(int argc, char *argv[])
 
 				printf("am verificat protocolul, e ICMP\n");
 
-				// trimit ICMP echo reply
-				send_icmp_echo_reply(buf, len, interface);
+				// pregatesc ICMP echo reply
+				struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
+				struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
+				struct icmp_hdr *icmp_hdr = (struct icmp_hdr *)(buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+
+    			// interschimb adresele MAC si IP
+    			uint8_t temp[MAC_LEN];
+   				memcpy(temp, eth_hdr->ethr_shost, MAC_LEN);
+    			memcpy(eth_hdr->ethr_shost, eth_hdr->ethr_dhost, MAC_LEN);
+    			memcpy(eth_hdr->ethr_dhost, temp, MAC_LEN);
+
+    			uint32_t temp_ip = ip_hder->dest_addr;
+				ip_hder->dest_addr = ip_hder->source_addr;
+				ip_hder->source_addr = temp_ip;
+
+				// reinnoiesc TTL-ul
+    			ip_hder->ttl = DEFAULT_TTL;
+
+    			// adaug tipul de mesaj ICMP
+    			icmp_hdr->mtype = ICMP_ECHO_REPLY;
+    			icmp_hdr->mcode = ICMP_CODE;
+
+				// calculez checksum-ul
+				icmp_hdr->check = 0;
+				icmp_hdr->check = htons(checksum((void *)icmp_hdr, sizeof(struct icmp_hdr) + ntohs(ip_hder->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr)));
+    
+				// trimit pachetul
+    			send_to_link(len, buf, interface);
+    
+    			printf("Sent ICMP Echo Reply to %s\n", int_to_ip(ntohl(ip_hder->dest_addr)));
 				
 				free(my_mac);
 				continue;
