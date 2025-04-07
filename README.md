@@ -1,10 +1,15 @@
 *Ontica Alexandra-Elena, 321CB*
 # Tema 1 - Dataplane Router
 
+Am incercat sa implementez toate cerintele din enunt.
+
 ## Implementare
 Am urmat pasii din enuntul temei, asa ca nu voi mai descie pas cu pas ce am implementat pentru ca va fi cam acelasi lucru ca in cerinta. In orice caz, am adaugat comentarii peste tot in cod, sper sa fie suficient pentru a se intelege clar ce implementez.
 
-Am incercat sa implementez toate cerintele din enunt.
+Uitandu-ma pe comentarii, decizii care nu sunt mentionate in cerinta pe care le-am luat:
+- cand trimit pachetul mai departe, imi trebuie si lungimea lui; creez tipul `packet` (structura) ca sa adaug in coada pachetelor care asteapta ARP reply nu doar continutul pachetelor, ci si lungimea lor; retin si interfata pt care trebuie sa le trimit mai departe (pt next hop)
+- pachtele ARP si ICMP (pt debugging, nu ICMP echo reply) am preferat sa le construiesc de la 0; am incercat si sa suprascriu pachtele pe care le primeam, dar nu stiu ce faceam gresit, nu imi ajungeau pachetele cand le trimiteam dupa aceea; asa mi-a fost mai usor sa controlez informatia stocata in headere
+- cand primesc un ARP reply trebuie sa caut in coada pachetul care are nevoie de MAC-ul primit; pt asta trebuie sa scot pe rand pachetele din coada, dar cele care nu se potrivesc trebuie sa le salvez undeva ca sa nu le pierd; mi-am creat deci o coada suplimentara (ca sa pastrez si ordinea) care stocheaza pachetele pe care inca nu le pot da mai departe; la final pun aceste pachete in coada initiala (care ajunge sa fie goala)
 
 ## Longest Prefix Match
 Am folosit o trie, asa cum este sugerat si in cerinta.
