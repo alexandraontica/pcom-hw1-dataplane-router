@@ -18,7 +18,7 @@ char* int_to_ip(uint32_t ip)
     return strdup(buffer);
 }
 
-trie alloc_node(int is_end, int prefix_len, uint32_t prefix, int interface, uint32_t ip_addr)
+trie alloc_node(int is_end, int prefix_len, uint32_t prefix, size_t interface, uint32_t ip_addr)
 // aloc un nod in arbore
 {
     trie aux = (trie)calloc(1, sizeof(tnode));
@@ -47,7 +47,7 @@ trie create_trie()
     // deci logica se pastreaza
 }
 
-trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, int interface, uint32_t ip_addr)
+trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, size_t interface, uint32_t ip_addr)
 // adaug un prefix nou in arbore (daca nu exista deja prefixul dat ca parametru)
 {
     if (!t) {

@@ -35,7 +35,7 @@
 typedef struct {
 	char buf[MAX_PACKET_LEN];
 	int len;
-	int next_hop_interface;
+	long unsigned int next_hop_interface;
 } packet;
 
 // l-as fi lasat ca macro, dar fac memcmp pe el si da segfault
@@ -54,7 +54,7 @@ int arp_cache_len;
 char arp_pachet[sizeof(struct ether_hdr) + sizeof(struct arp_hdr)];
 
 void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
-	uint32_t src_ip, uint32_t dest_ip, int interface)
+	uint32_t src_ip, uint32_t dest_ip, size_t interface)
 // trimit un pachet ARP de tipul `arp_type` (request sau reply)
 {
 	// struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
@@ -103,7 +103,7 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 }
 
 void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
-    uint32_t src_ip, uint32_t dest_ip, int interface)
+    uint32_t src_ip, uint32_t dest_ip, size_t interface)
 {
     // struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
     struct ip_hdr *ip_hdr = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
@@ -182,10 +182,10 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < rtable_len; i++) {
 		uint32_t prefix = ntohl(rtable[i].prefix);
 		uint32_t mask = ntohl(rtable[i].mask);
-		int interface = rtable[i].interface;
+		size_t interface = rtable[i].interface;
 		uint32_t next_hop = ntohl(rtable[i].next_hop);
 
-		printf("prefix: %s, mask: %s, interface: %d, next hop: %s\n", 
+		printf("prefix: %s, mask: %s, interface: %ld, next hop: %s\n", 
 			int_to_ip(prefix), int_to_ip(mask), interface, int_to_ip(next_hop));
 
 		prefix_trie = add_to_trie(prefix_trie, prefix, mask, interface, next_hop);
@@ -365,9 +365,9 @@ int main(int argc, char *argv[])
 			LPM lpm = longest_prefix_match(prefix_trie, ip_addr_dest);
 
 			uint32_t next_hop_addr = lpm.ip_addr;  // puteam cred sa folosesc direct ip_hder->dest_addr
-			int next_hop_interface = lpm.interface;
+			size_t next_hop_interface = lpm.interface;
 
-			printf("am gasit interfata %d si adresa %s pt next hop\n", 
+			printf("am gasit interfata %ld si adresa %s pt next hop\n", 
 				next_hop_interface, int_to_ip(next_hop_addr));
 
 			if (next_hop_interface == -1) {
@@ -529,7 +529,7 @@ int main(int argc, char *argv[])
 					memcpy(eth_hdr->ethr_dhost, arp_hdr->shwa, MAC_LEN);
 					memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
-					printf("next hop interface: %d, interface: %d\n", ipv4_packet->next_hop_interface, interface);
+					printf("next hop interface: %ld, interface: %ld\n", ipv4_packet->next_hop_interface, interface);
 					send_to_link(ipv4_packet->len, ipv4_packet->buf, ipv4_packet->next_hop_interface);
 				} else {
 					queue_enq(not_the_packet_i_wanted, ipv4_packet);

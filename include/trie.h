@@ -8,19 +8,19 @@ typedef struct node {
   int prefix_len;
   uint32_t prefix;
   uint32_t ip_addr; // adresa ip o populez doar daca is_end == 1
-  int interface; // interfata o populez doar daca is_end == 1
+  size_t interface; // interfata o populez doar daca is_end == 1
   struct node *children[MAX_TRIE_CHILDREN];
 } tnode, *trie;
 
 typedef struct {
     uint32_t ip_addr;
-    int interface;
+    size_t interface;
 } LPM;
 
 char* int_to_ip(uint32_t ip);
-trie alloc_node(int is_end, int prefix_len, uint32_t prefix, int interface, uint32_t ip_addr);
+trie alloc_node(int is_end, int prefix_len, uint32_t prefix, size_t interface, uint32_t ip_addr);
 trie create_trie();
-trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, int interface, uint32_t ip_addr);
+trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, size_t interface, uint32_t ip_addr);
 LPM longest_prefix_match(trie t, uint32_t ip);
 void free_trie(trie *t);
 
