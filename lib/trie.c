@@ -170,7 +170,7 @@ LPM longest_prefix_match(trie t, uint32_t ip)
     } else {
         // nu am gasit un prefix care sa se potriveasca
         lpm.ip_addr = 0;
-        lpm.interface = -1;
+        lpm.interface = SIZE_MAX;
     }
     
     return lpm;

@@ -103,8 +103,9 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 	free(arp_hdr);
 }
 
-void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
-    uint32_t src_ip, uint32_t dest_ip, size_t interface)
+void send_icmp_when_error(char *buf, int len, int icmp_type, 
+	uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
+	uint32_t src_ip, uint32_t dest_ip, size_t interface)
 {
     // struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
     struct ip_hdr *ip_hdr = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
