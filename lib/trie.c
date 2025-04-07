@@ -133,7 +133,7 @@ LPM longest_prefix_match(trie t, uint32_t ip)
 
     if (!t) {
         lpm.ip_addr = 0;
-        lpm.interface = -1;
+        lpm.interface = SIZE_MAX;
         return lpm;
     }
 

@@ -51,8 +51,6 @@ int rtable_len;
 struct arp_table_entry arp_cache[MAX_ARP_ENTRIES];
 int arp_cache_len;
 
-char arp_pachet[sizeof(struct ether_hdr) + sizeof(struct arp_hdr)];
-
 void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
 	uint32_t src_ip, uint32_t dest_ip, size_t interface)
 // trimit un pachet ARP de tipul `arp_type` (request sau reply)
@@ -84,7 +82,7 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 
 		// in requesturile pe care routerul meu le primeste
 		// adresa mac target e setata pe zero
-		uint8_t zeros[6] = {0, 0, 0, 0, 0, 0};
+		uint8_t zeros[MAC_LEN] = {0, 0, 0, 0, 0, 0};
 
 		memcpy(arp_hdr->thwa, zeros, MAC_LEN);
 	}
@@ -98,8 +96,11 @@ void send_arp(int arp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN],
 
 	// trimit pachetul
 	send_to_link(len_local, buf_local, interface);
-	printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
-		 int_to_ip(src_ip), int_to_ip(dest_ip));
+	// printf("Trimit ARP %s: src_ip=%s, dest_ip=%s\n", arp_type == ARP_OPERATION_REQUEST ? "request" : "reply",
+	// 	 int_to_ip(src_ip), int_to_ip(dest_ip));
+
+	free(eth_hdr);
+	free(arp_hdr);
 }
 
 void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC_LEN], uint8_t dest_mac[MAC_LEN], 
@@ -112,7 +113,8 @@ void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC
     char buf_local[MAX_PACKET_LEN];
     struct ether_hdr *new_eth_hdr = (struct ether_hdr *)buf_local;
     struct ip_hdr *new_ip_hdr = (struct ip_hdr *)(buf_local + sizeof(struct ether_hdr));
-    struct icmp_hdr *new_icmp_hdr = (struct icmp_hdr *)(buf_local + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+    struct icmp_hdr *new_icmp_hdr = (struct icmp_hdr *)(buf_local + sizeof(struct ether_hdr) 
+		+ sizeof(struct ip_hdr));
     
     // populez headerul ethernet
     memcpy(new_eth_hdr->ethr_dhost, dest_mac, MAC_LEN);
@@ -134,9 +136,11 @@ void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC
     new_icmp_hdr->mcode = ICMP_CODE;
     
     // adaug informatia (header-ul IP + 64 de biti deasupra header-ului IP)
-    char *payload = buf_local + sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + sizeof(struct icmp_hdr);
+    char *payload = buf_local + sizeof(struct ether_hdr) + sizeof(struct ip_hdr) 
+		+ sizeof(struct icmp_hdr);
     memcpy(payload, ip_hdr, sizeof(struct ip_hdr));
-    memcpy(payload + sizeof(struct ip_hdr), buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr), BITS_64);
+    memcpy(payload + sizeof(struct ip_hdr), buf + sizeof(struct ether_hdr) 
+		+ sizeof(struct ip_hdr), BITS_64);
     
     // caclulez checksum-ul
     int icmp_len = sizeof(struct icmp_hdr) + sizeof(struct ip_hdr) + BITS_64;
@@ -147,7 +151,8 @@ void send_icmp_when_error(char *buf, int len, int icmp_type, uint8_t src_mac[MAC
     int packet_len = sizeof(struct ether_hdr) + sizeof(struct ip_hdr) + icmp_len;
     send_to_link(packet_len, buf_local, interface);
     
-    printf("Trimit ICMP %d: src_ip=%s, dest_ip=%s\n", icmp_type, int_to_ip(src_ip), int_to_ip(dest_ip));
+    // printf("Trimit ICMP %d: src_ip=%s, dest_ip=%s\n", 
+	// 	icmp_type, int_to_ip(src_ip), int_to_ip(dest_ip));
 }
 
 int main(int argc, char *argv[])
@@ -185,8 +190,8 @@ int main(int argc, char *argv[])
 		size_t interface = rtable[i].interface;
 		uint32_t next_hop = ntohl(rtable[i].next_hop);
 
-		printf("prefix: %s, mask: %s, interface: %ld, next hop: %s\n", 
-			int_to_ip(prefix), int_to_ip(mask), interface, int_to_ip(next_hop));
+		// printf("prefix: %s, mask: %s, interface: %ld, next hop: %s\n", 
+		// 	int_to_ip(prefix), int_to_ip(mask), interface, int_to_ip(next_hop));
 
 		prefix_trie = add_to_trie(prefix_trie, prefix, mask, interface, next_hop);
 
@@ -206,7 +211,7 @@ int main(int argc, char *argv[])
 		DIE(interface < 0, "recv_from_any_links");
 
 		// imi obtin adresele MAC si IP
-		uint8_t *my_mac = (uint8_t *)malloc(MAC_LEN);
+		uint8_t my_mac[MAC_LEN];
 		get_interface_mac(interface, my_mac);
 
 		struct in_addr my_ip;
@@ -214,8 +219,6 @@ int main(int argc, char *argv[])
 		int result = inet_pton(AF_INET, get_interface_ip(interface), &my_ip);
 
 		if (result <= 0) {
-			free(my_mac);
-
 			// arunc pachetul
 			continue;
 		}
@@ -223,15 +226,13 @@ int main(int argc, char *argv[])
 		uint32_t my_ip_addr = ntohl(my_ip.s_addr);  // https://www.gta.ufrj.br/ensino/eel878/sockets/sockaddr_inman.html
 		// nu puteau sa foloseasca direct unsigned long, au trebuit sa puna campul intr-o structura :(
 		
-		printf("my ip address: %s\n", int_to_ip(my_ip_addr));
+		// printf("my ip address: %s\n", int_to_ip(my_ip_addr));
 
 		struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
 
 		// verific daca e de tip ethernet
 		uint16_t eth_type = ntohs(eth_hdr->ethr_type);
 		if (eth_type != ETHR_TYPE_IPv4 && eth_type != ETHR_TYPE_ARP) {
-			free(my_mac);
-
 			// arunc pachetul
 			continue;
 		}
@@ -243,43 +244,39 @@ int main(int argc, char *argv[])
 		uint8_t dest_mac[MAC_LEN];
 		memcpy(dest_mac, eth_hdr->ethr_dhost, MAC_LEN);
 
-		if (memcmp(dest_mac, my_mac, MAC_LEN) && memcmp(eth_hdr->ethr_dhost, 
-			broadcast_mac, MAC_LEN)) {
+		if (memcmp(dest_mac, my_mac, MAC_LEN) && memcmp(dest_mac, broadcast_mac, MAC_LEN)) {
 			// n-a fost trimis nici catre mine explicit, nici catre broadcast
-			free(my_mac);
-
 			// arunc pachetul
 			continue;
 		}
 
-		printf("am verificat adresa mac de destinatie\n");
+		// printf("am verificat adresa mac de destinatie\n");
 
 		// verific daca e de tipul IPv4
 		if (eth_type == ETHR_TYPE_IPv4) {
-			printf("am verificat tipul de pachet, e IPv4\n");
+			// printf("am verificat tipul de pachet, e IPv4\n");
 			struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
 
 			if (ntohl(ip_hder->dest_addr) == my_ip_addr) {
 				// pachetul e trimis catre mine
-				printf("am primit pachet catre mine\n");
+				// printf("am primit pachet catre mine\n");
 
 				// verific daca mesajul este tip ICMP
 				uint8_t protocol = ip_hder->proto;
 
 				if (protocol != ICMP_PROTOCOL_NUMBER) {
-					free(my_mac);
-
 					// routerul raspunde cf cerintei doar mesajelor ICMP, deci
 					// arunc pachetul
 					continue;
 				}
 
-				printf("am verificat protocolul, e ICMP\n");
+				// printf("am verificat protocolul, e ICMP\n");
 
 				// pregatesc ICMP echo reply
 				struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
 				struct ip_hdr *ip_hder = (struct ip_hdr *)(buf + sizeof(struct ether_hdr));
-				struct icmp_hdr *icmp_hdr = (struct icmp_hdr *)(buf + sizeof(struct ether_hdr) + sizeof(struct ip_hdr));
+				struct icmp_hdr *icmp_hdr = (struct icmp_hdr *)(buf + sizeof(struct ether_hdr) 
+					+ sizeof(struct ip_hdr));
 
     			// interschimb adresele MAC si IP
     			uint8_t temp[MAC_LEN];
@@ -300,14 +297,13 @@ int main(int argc, char *argv[])
 
 				// calculez checksum-ul
 				icmp_hdr->check = 0;
-				icmp_hdr->check = htons(checksum((void *)icmp_hdr, sizeof(struct icmp_hdr) + ntohs(ip_hder->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr)));
+				icmp_hdr->check = htons(checksum((void *)icmp_hdr, sizeof(struct icmp_hdr) 
+					+ ntohs(ip_hder->tot_len) - sizeof(struct ip_hdr) - sizeof(struct icmp_hdr)));
     
 				// trimit pachetul
     			send_to_link(len, buf, interface);
     
-    			printf("Sent ICMP Echo Reply to %s\n", int_to_ip(ntohl(ip_hder->dest_addr)));
-				
-				free(my_mac);
+    			// printf("Sent ICMP Echo Reply to %s\n", int_to_ip(ntohl(ip_hder->dest_addr)));
 				continue;
 			}
 
@@ -318,21 +314,18 @@ int main(int argc, char *argv[])
 			
 			if (packet_checksum != actual_checksum) {
 				// pachet corupt
-				free(my_mac);
-
 				// arunc pachetul
 				continue;
 			}
 
-			printf("am verificat checksum-ul\n");
+			// printf("am verificat checksum-ul\n");
 
 			// verific si actualizez TTL-ul
 			if (!ip_hder->ttl || ip_hder->ttl == 1) {
 				// TTL-ul a expirat
 				// trimit ICMP "Time Exceeded" catre sursa
-				send_icmp_when_error(buf, len, ICMP_TIME_EXCEEDED, my_mac, eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
-
-				free(my_mac);
+				send_icmp_when_error(buf, len, ICMP_TIME_EXCEEDED, my_mac, 
+					eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
 
 				// arunc pachetul
 				continue;
@@ -340,7 +333,7 @@ int main(int argc, char *argv[])
 
 			ip_hder->ttl--;
 
-			printf("am verificat si modificat TTL-ul\n");
+			// printf("am verificat si modificat TTL-ul\n");
 
 			// LPM, caut interfata si adresa urmatorului hop
 
@@ -367,16 +360,15 @@ int main(int argc, char *argv[])
 			uint32_t next_hop_addr = lpm.ip_addr;  // puteam cred sa folosesc direct ip_hder->dest_addr
 			size_t next_hop_interface = lpm.interface;
 
-			printf("am gasit interfata %ld si adresa %s pt next hop\n", 
-				next_hop_interface, int_to_ip(next_hop_addr));
+			// printf("am gasit interfata %ld si adresa %s pt next hop\n", 
+			// 	next_hop_interface, int_to_ip(next_hop_addr));
 
-			if (next_hop_interface == -1) {
+			if (next_hop_interface == SIZE_MAX) {
 				// nu am gasit un prefix care sa se potriveasca
 				// trimit ICMP "Destination Unreachable" catre sursa
-				send_icmp_when_error(buf, len, ICMP_DESTINATION_UNREACHABLE, my_mac, eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
+				send_icmp_when_error(buf, len, ICMP_DESTINATION_UNREACHABLE, my_mac, 
+					eth_hdr->ethr_shost, my_ip_addr, htonl(ip_hder->source_addr), interface);
 				
-				free(my_mac);
-
 				// arunc pachetul
 				continue;
 			}
@@ -387,32 +379,29 @@ int main(int argc, char *argv[])
 			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
 			ip_hder->checksum = htons(new_checksum);
 
-			printf("am modificat checksum-ul\n");
+			// printf("am modificat checksum-ul\n");
 
 			// determin adresa mac a urmatorului hop
 			uint8_t next_hop_mac[MAC_LEN];
 			memcpy(next_hop_mac, broadcast_mac, MAC_LEN);
 
-			printf("adresa IP a urmatorului hop host: %s, network: %s\n", 
-				int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
+			// printf("adresa IP a urmatorului hop host: %s, network: %s\n", 
+			// 	int_to_ip(next_hop_addr), int_to_ip(next_hop_addr_network));
 
 			// imi reobtin adresele MAC si IP
-			// interfete diferite => adrese diferite (cat timp am pierdut ca nu stiam asta...)
-			my_mac = (uint8_t *)malloc(MAC_LEN);
+			// interfete diferite => adrese diferite
 			get_interface_mac(next_hop_interface, my_mac);
 
 			result = inet_pton(AF_INET, get_interface_ip(next_hop_interface), &my_ip);
 
 			if (result <= 0) {
-				free(my_mac);
-
 				// arunc pachetul
 				continue;
 			}
 
 			my_ip_addr = ntohl(my_ip.s_addr);
 		
-			printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
+			// printf("my NEW ip address: %s\n", int_to_ip(my_ip_addr));
 
 			// caut in cache daca exista deja un entry pt adresa ip curenta
 			for (int i = 0; i < arp_cache_len; i++) {
@@ -432,27 +421,37 @@ int main(int argc, char *argv[])
 				queue_enq(waiting_for_arp_reply_queue, &ipv4_packet);
 				
 				// trebuie sa trimit un ARP request catre broadcast
-				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, my_ip_addr, next_hop_addr, next_hop_interface);
+				send_arp(ARP_OPERATION_REQUEST, my_mac, (uint8_t *)broadcast_mac, 
+				my_ip_addr, next_hop_addr, next_hop_interface);
 				
-				printf("am trimis ARP request catre broadcast\n");
+				// printf("am trimis ARP request catre broadcast\n");
+				// printf("pachetul adaugat in coada: ip src: %s, ip dst: %s, interface: %ld\n", 
+				// 	int_to_ip(ntohl(ip_hder->source_addr)), 
+				// 	int_to_ip(ntohl(ip_hder->dest_addr)), 
+				// 	next_hop_interface);
 				
-				free(my_mac);
 				continue;
 			}
 
-			printf("am gasit adresa MAC a urmatorului hop\n");
+			// for (int i = 0; i < static_arp_table_len; i++) {
+			// 	if (static_arp_table[i].ip == next_hop_addr_network) {
+			// 		memcpy(next_hop_mac, static_arp_table[i].mac, MAC_LEN);
+			// 	}
+			// }
+
+			// printf("am gasit adresa MAC a urmatorului hop\n");
 
 			// trimit pachet catre urmatorul hop
 			memcpy(eth_hdr->ethr_dhost, next_hop_mac, MAC_LEN);
 			memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
-			printf("am modificat adresele MAC sursa si destinatie\n");
+			// printf("am modificat adresele MAC sursa si destinatie\n");
 
 			send_to_link(len, buf, next_hop_interface);
 
-			printf("am trimis pachetul catre urmatorul hop\n");
+			// printf("am trimis pachetul catre urmatorul hop\n");
 		} else if (eth_type == ETHR_TYPE_ARP) {
-			printf("ARP\n");
+			// printf("ARP\n");
 
 			struct ether_hdr *eth_hdr = (struct ether_hdr *)buf;
 			struct arp_hdr *arp_hdr = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
@@ -462,18 +461,17 @@ int main(int argc, char *argv[])
 
 			if (opcode != ARP_OPERATION_REQUEST && opcode != ARP_OPERATION_REPLY) {
 				// accept doar operatii de tip request sau reply
-				free(my_mac);
 
-				printf("am aruncat pachetul, nu e ARP request sau reply\n");
+				// printf("am aruncat pachetul, nu e ARP request sau reply\n");
 				// arunc pachetul
 				continue;
 			}
 
-			printf("am verificat tipul de pachet, request sau reply\n");
+			// printf("am verificat tipul de pachet, request sau reply\n");
 
 			// verific daca e ARP request
 			if (opcode == ARP_OPERATION_REQUEST) {
-				printf("ARP request\n");
+				// printf("ARP request\n");
 
 				// verific daca e ARP request catre mine
 				if (ntohl(arp_hdr->tprotoa) == my_ip_addr) {
@@ -482,24 +480,23 @@ int main(int argc, char *argv[])
 					memcpy(dest_mac, eth_hdr->ethr_shost, MAC_LEN);
 					uint32_t dest_ip = arp_hdr->sprotoa;
 
-					printf("am primit ARP request catre mine, trimit ARP reply\n");
-					printf("Am primit ARP Request: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
-						int_to_ip(dest_ip),
-						arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
-						arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
+					// printf("am primit ARP request catre mine, trimit ARP reply\n");
+					// printf("Am primit ARP Request: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+						// int_to_ip(dest_ip),
+						// arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
+						// arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 					
 					send_arp(ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
 					
-					free(my_mac);
 					continue;
 				}
 			}
 
-			printf("ARP reply\n");
-			printf("Am primit ARP Reply: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
-				int_to_ip(ntohl(arp_hdr->sprotoa)),
-				arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
-				arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
+			// printf("ARP reply\n");
+			// printf("Am primit ARP Reply: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
+				// int_to_ip(ntohl(arp_hdr->sprotoa)),
+				// arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
+				// arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 
 			// adaug in cache adresele IP si MAC
 			// presupun ca nu pot primi ARP reply daca am deja in cache adresa MAC
@@ -518,33 +515,35 @@ int main(int argc, char *argv[])
 
 			while (!queue_empty(waiting_for_arp_reply_queue)) {
 				packet *ipv4_packet = (packet *)queue_deq(waiting_for_arp_reply_queue);
-				struct ip_hdr *ip_hder = (struct ip_hdr *)(ipv4_packet->buf + sizeof(struct ether_hdr));
+				struct ip_hdr *ip_hder = (struct ip_hdr *)(ipv4_packet->buf 
+					+ sizeof(struct ether_hdr));
 
-				printf("am scos un pachet din coada, ip dest %s, arp ip %s\n", 
-					int_to_ip(ip_hder->dest_addr), int_to_ip(arp_hdr->sprotoa));
+				// printf("am scos un pachet din coada, ip dest %s, arp ip %s\n", 
+				// 	int_to_ip(ntohl(ip_hder->dest_addr)), int_to_ip(ntohl(arp_hdr->sprotoa)));
 
 				if (ip_hder->dest_addr == arp_hdr->sprotoa) {
 					// am gasit pachetul care astepta ARP reply
-					printf("am gasit pachetul care astepta ARP reply\n");
+					// printf("am gasit pachetul care astepta ARP reply\n");
 					memcpy(eth_hdr->ethr_dhost, arp_hdr->shwa, MAC_LEN);
+
+					// obtin MAC-ul corespunzator interfetei pt next hop
+					get_interface_mac(ipv4_packet->next_hop_interface, my_mac);
+
 					memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
-					printf("next hop interface: %ld, interface: %ld\n", ipv4_packet->next_hop_interface, interface);
-					send_to_link(ipv4_packet->len, ipv4_packet->buf, ipv4_packet->next_hop_interface);
+					// printf("next hop interface: %ld, interface: %ld\n", 
+					// 	ipv4_packet->next_hop_interface, interface);
+					send_to_link(ipv4_packet->len, ipv4_packet->buf, 
+						ipv4_packet->next_hop_interface);
 				} else {
 					queue_enq(not_the_packet_i_wanted, ipv4_packet);
 				}
 			}
 
 			// pun inapoi pachetele care nu s-au potrivit
-			while (!queue_empty(not_the_packet_i_wanted)) {
-				packet *ipv4_packet = (packet *)queue_deq(not_the_packet_i_wanted);
-				queue_enq(waiting_for_arp_reply_queue, ipv4_packet);
-			}
+			waiting_for_arp_reply_queue = not_the_packet_i_wanted;
 		}
 		
-		free(my_mac);
-
     /* Note that packets received are in network order,
 		any header field which has more than 1 byte will need to be conerted to
 		host order. For example, ntohs(eth_hdr->ether_type). The oposite is needed when
