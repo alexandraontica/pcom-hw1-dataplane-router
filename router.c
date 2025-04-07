@@ -15,7 +15,7 @@
 #define ETHR_TYPE_IPv4 0x800
 #define ETHR_TYPE_ARP 0x806
 #define ICMP_PROTOCOL_NUMBER 1  // conform https://www.rfc-editor.org/rfc/rfc990 (pagina 24)
-#define MAX_ARP_ENTRIES 100  // poate merge si cu mai putine din moment ce am doar 8 entitati (2 rutere + 4 host uri)
+#define MAX_ARP_ENTRIES 100
 #define HARDWARE_TYPE_ETHERNET 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REQUEST 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REPLY 2  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
@@ -28,12 +28,14 @@
 #define BITS_64 8  // in cerinta scrie ca trebuie sa salvez cand trimit un ICMP
 				   // 64 de biti (adica 8 octeti) din ce e deasupra header-ului IP
 
-// cand trimit pachetul mai departe, imi trebuie si lungimea lui
+// cand trimit pachetul mai departe, imi trebuie si lungimea lui;
 // creez structura packet ca sa adaug in coada nu doar continutul
-// pachetelor, ci si lungimea lor
+// pachetelor, ci si lungimea lor;
+// retin si interfata pt care trebuie sa le trimit (pt next hop)
 typedef struct {
 	char buf[MAX_PACKET_LEN];
 	int len;
+	int next_hop_interface;
 } packet;
 
 // l-as fi lasat ca macro, dar fac memcmp pe el si da segfault
@@ -341,6 +343,24 @@ int main(int argc, char *argv[])
 			printf("am verificat si modificat TTL-ul\n");
 
 			// LPM, caut interfata si adresa urmatorului hop
+
+			// uint32_t next_hop_addr = 0;
+			// int next_hop_interface = 0;
+			// uint32_t next_hop_mask = 0;
+
+			// for (int i = 0; i < rtable_len; i++) {
+			// 	uint32_t prefix = ntohl(rtable[i].prefix);
+			// 	uint32_t mask = ntohl(rtable[i].mask);
+
+			// 	if ((ip_addr_dest & mask) == (prefix & mask)) {
+			// 		if (mask > next_hop_mask) {
+			// 			next_hop_mask = mask;
+			// 			next_hop_interface = rtable[i].interface;
+			// 			next_hop_addr = ntohl(rtable[i].next_hop);
+			// 		}
+			// 	}
+			// }
+
 			uint32_t ip_addr_dest = ntohl(ip_hder->dest_addr);
 			LPM lpm = longest_prefix_match(prefix_trie, ip_addr_dest);
 
@@ -362,8 +382,6 @@ int main(int argc, char *argv[])
 			}
 
 			uint32_t next_hop_addr_network = htonl(next_hop_addr);
-			// ip_hder->dest_addr = next_hop_addr_network;
-			// ip_hder->source_addr = my_ip_addr;
 
 			// actualizez checksum-ul
 			uint16_t new_checksum = checksum((uint16_t *)ip_hder, sizeof(struct ip_hdr));
@@ -409,6 +427,7 @@ int main(int argc, char *argv[])
 				packet ipv4_packet;
 				memcpy(ipv4_packet.buf, buf, len);
 				ipv4_packet.len = len;
+				ipv4_packet.next_hop_interface = next_hop_interface;
 				
 				queue_enq(waiting_for_arp_reply_queue, &ipv4_packet);
 				
@@ -510,7 +529,8 @@ int main(int argc, char *argv[])
 					memcpy(eth_hdr->ethr_dhost, arp_hdr->shwa, MAC_LEN);
 					memcpy(eth_hdr->ethr_shost, my_mac, MAC_LEN);
 
-					send_to_link(ipv4_packet->len, ipv4_packet->buf, interface);
+					printf("next hop interface: %d, interface: %d\n", ipv4_packet->next_hop_interface, interface);
+					send_to_link(ipv4_packet->len, ipv4_packet->buf, ipv4_packet->next_hop_interface);
 				} else {
 					queue_enq(not_the_packet_i_wanted, ipv4_packet);
 				}
@@ -535,4 +555,3 @@ int main(int argc, char *argv[])
 	// free(static_arp_table);
 	free_trie(&prefix_trie);
 }
-

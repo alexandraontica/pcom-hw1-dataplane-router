@@ -4,7 +4,7 @@
 #define MAX_TRIE_CHILDREN 256
 
 typedef struct node {
-  int is_end;
+  int is_end; // marcheaza ultimul nod dintr-un prefix
   int prefix_len;
   uint32_t prefix;
   uint32_t ip_addr; // adresa ip o populez doar daca is_end == 1

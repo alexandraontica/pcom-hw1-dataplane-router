@@ -112,6 +112,7 @@ trie add_to_trie(trie t, uint32_t prefix, uint32_t mask, int interface, uint32_t
             return NULL;
         }
     }
+
     aux = aux->children[current_byte];
     aux->is_end = 1;
     aux->prefix_len = current_len;
@@ -194,7 +195,6 @@ void free_trie(trie *t)
 // int main() 
 // {
 //     // cod de test sa vad ca am implementat bine
-//     // ar fi ceva sa imi pice testele checker-ului din cauza unui segfault aici...
 
 //     trie t = create_trie();
 
