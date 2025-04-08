@@ -15,7 +15,7 @@
 #define ETHR_TYPE_IPv4 0x800
 #define ETHR_TYPE_ARP 0x806
 #define ICMP_PROTOCOL_NUMBER 1  // conform https://www.rfc-editor.org/rfc/rfc990 (pagina 24)
-#define MAX_ARP_ENTRIES 100
+#define MAX_ARP_ENTRIES 10  // in fisierul cu tabela statica erau putine intrari, sub 10
 #define HARDWARE_TYPE_ETHERNET 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REQUEST 1  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
 #define ARP_OPERATION_REPLY 2  // conform https://www.iana.org/assignments/arp-parameters/arp-parameters.xhtml
@@ -468,8 +468,6 @@ int main(int argc, char *argv[])
 				continue;
 			}
 
-			// printf("am verificat tipul de pachet, request sau reply\n");
-
 			// verific daca e ARP request
 			if (opcode == ARP_OPERATION_REQUEST) {
 				// printf("ARP request\n");
@@ -482,10 +480,6 @@ int main(int argc, char *argv[])
 					uint32_t dest_ip = arp_hdr->sprotoa;
 
 					// printf("am primit ARP request catre mine, trimit ARP reply\n");
-					// printf("Am primit ARP Request: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
-						// int_to_ip(dest_ip),
-						// arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
-						// arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 					
 					send_arp(ARP_OPERATION_REPLY, my_mac, dest_mac, my_ip_addr, ntohl(dest_ip), interface);
 					
@@ -494,10 +488,6 @@ int main(int argc, char *argv[])
 			}
 
 			// printf("ARP reply\n");
-			// printf("Am primit ARP Reply: src_ip=%s, src_mac=%02x:%02x:%02x:%02x:%02x:%02x\n",
-				// int_to_ip(ntohl(arp_hdr->sprotoa)),
-				// arp_hdr->shwa[0], arp_hdr->shwa[1], arp_hdr->shwa[2],
-				// arp_hdr->shwa[3], arp_hdr->shwa[4], arp_hdr->shwa[5]);
 
 			// adaug in cache adresele IP si MAC
 			// presupun ca nu pot primi ARP reply daca am deja in cache adresa MAC
@@ -505,7 +495,7 @@ int main(int argc, char *argv[])
 			arp_cache[arp_cache_len].ip = arp_hdr->sprotoa;
 			arp_cache_len++;
 
-			printf("am adaugat in cache adresa IP si MAC\n");
+			// printf("am adaugat in cache adresa IP si MAC\n");
 
 			// caut in coada pachetul care asteapta ARP reply
 			// atentie ca trebuie sa se potriveasca IP-ul sursa din ARP reply

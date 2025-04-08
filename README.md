@@ -8,7 +8,7 @@ Am urmat pasii din enuntul temei, asa ca nu voi mai descie pas cu pas ce am impl
 
 Uitandu-ma pe comentarii, decizii care nu sunt mentionate in cerinta pe care le-am luat:
 - cand trimit pachetul mai departe, imi trebuie si lungimea lui; creez tipul `packet` (structura) ca sa adaug in coada pachetelor care asteapta ARP reply nu doar continutul pachetelor, ci si lungimea lor; retin si interfata pt care trebuie sa le trimit mai departe (pt next hop)
-- pachtele ARP si ICMP (pt debugging, nu ICMP echo reply) am preferat sa le construiesc de la 0; am incercat si sa suprascriu pachtele pe care le primeam, dar nu stiu ce faceam gresit, nu imi ajungeau pachetele cand le trimiteam dupa aceea; asa mi-a fost mai usor sa controlez informatia stocata in headere
+- pachtele ARP am preferat sa le construiesc de la 0; am incercat si sa suprascriu pachtele pe care le primeam (in cazul trimiterii reply-urilor), dar nu stiu ce faceam gresit, nu imi ajungeau pachetele cand le trimiteam dupa aceea; asa mi-a fost mai usor sa controlez informatia stocata in headere
 - cand primesc un ARP reply trebuie sa caut in coada pachetul care are nevoie de MAC-ul primit; pt asta trebuie sa scot pe rand pachetele din coada, dar cele care nu se potrivesc trebuie sa le salvez undeva ca sa nu le pierd; mi-am creat deci o coada suplimentara (ca sa pastrez si ordinea) care stocheaza pachetele pe care inca nu le pot da mai departe; la final pun aceste pachete in coada initiala (care ajunge sa fie goala)
 
 ## Longest Prefix Match
@@ -37,7 +37,7 @@ Functia `longest_prefix_match()` are complexitate **O(1)** (inaltimea arborelui 
 
 
 ## Debugging
-Pentru debugging am folosit `printf`-uri. Le-am comentat acum ca sa nu adauge overhead. In fisierul `trie.c` am implementat si o functie care imi transforma un `int` reprezentand o adresa IP in format xxx.xxx.xxx.xxx (human readable) pe care am folosit-o in afisari.
+Pentru debugging am folosit `printf`-uri ca sa vad exact la ce parte din cod mi se opreste codul sau unde am informatii gresite. Le-am comentat acum ca sa nu adauge overhead. In fisierul `trie.c` am implementat si o functie care imi transforma un `int` reprezentand o adresa IP in format xxx.xxx.xxx.xxx (human readable) pe care am folosit-o in afisari.
 
 Pentru trie am scris un `main` in care am testat adaugarea unor mai multe adrese IP (am harcodat si tot modificat pentru diferite cazuri), cu diferite masti. Apoi am incercat sa fac prefix match pe mai multe exemple ca sa ma asigur ca nu imi crapa algortimul din cauza structurii de date.
 
